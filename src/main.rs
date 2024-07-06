@@ -4,6 +4,7 @@ use std::io::Write;
 use std::{path::PathBuf, collections::HashSet};
 
 use clap::{Parser, Subcommand};
+use glob::glob;
 use log::{Log, debug, info, warn, error};
 use serde::Deserialize;
 
@@ -54,16 +55,17 @@ enum Commands {
     // TODO: status, logs
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Config {
     target: Vec<Target>,
+    container_build: Option<Vec<ContainerBuild>>,
 }
 
 fn default_false() -> bool {
     false
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 struct Target {
     name: String,
     command: String,
@@ -71,6 +73,18 @@ struct Target {
     requires: Option<Vec<String>>,
     #[serde(default = "default_false")]
     daemon: bool,
+    updates_paths: Option<Vec<String>>,
+    if_files_changed: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+struct ContainerBuild {
+    name: String,
+    context: String,
+    tag: String,
+    variables: Option<HashMap<String, String>>,
+    requires: Option<Vec<String>>,
+    if_files_changed: Option<Vec<String>>,
 }
 
 const CONFIG_FILE_NAME: &str = ".taskrunner.toml";
@@ -89,27 +103,41 @@ fn find_config_file() -> Option<std::path::PathBuf> {
     }
 }
 
-fn resolve_command(target: &Target, required_targets: Vec<&Target>) -> String {
-    debug!("Resolving command <{}> for target <{}>", target.command, target.name);
-    let mut resolved = target.command.to_string();
-    if let Some(ref variables) = target.variables {
-        for (key, value) in variables.iter() {
-            let new_resolved = resolved.replace(format!("{{{}}}", key).as_str(), value);
+fn substitute_variables(command: &str, variables: &HashMap<String, &HashMap<String, String>>) -> String {
+    let mut resolved = command.to_string();
+    for (target_name, value) in variables.iter() {
+        for (key, value) in value.iter() {
+            let new_resolved = if target_name == "" {
+                resolved.replace(format!("{{{}}}", key).as_str(), value)
+            } else {
+                resolved.replace(format!("{{{}.{}}}", target_name, key).as_str(), value)
+            };
             if new_resolved != resolved {
                 debug!("Resolved variable <{}> to <{}>", key, value);
             }
             resolved = new_resolved;
         }
+    }
+    resolved
+}
+
+fn variables_map<'a>(target: &'a Target, required_targets: &Vec<&'a Target>) -> HashMap<String, &'a HashMap<String, String>> {
+    let mut variables = HashMap::new();
+    if let Some(ref target_variables) = target.variables {
+        variables.insert("".to_string(), target_variables);
     }
     for required_target in required_targets.iter() {
-        for (key, value) in required_target.variables.iter().flatten() {
-            let new_resolved = resolved.replace(format!("{{{}.{}}}", required_target.name, key).as_str(), value);
-            if new_resolved != resolved {
-                debug!("Resolved variable <{}> to <{}>", key, value);
-            }
-            resolved = new_resolved;
+        if let Some(ref required_variables) = required_target.variables {
+            variables.insert(required_target.name.clone(), required_variables);
         }
     }
+    variables
+}
+
+fn resolve_command(target: &Target, required_targets: Vec<&Target>) -> String {
+    debug!("Resolving command <{}> for target <{}>", target.command, target.name);
+    let variables = variables_map(target, &required_targets);
+    let resolved = substitute_variables(target.command.as_str(), &variables);
     debug!("Resolved command to <{}>", resolved);
     resolved
 }
@@ -119,7 +147,6 @@ fn find_target<'a>(name: &str, targets: &'a Vec<Target>) -> Option<&'a Target> {
 }
 
 fn run_target_inner<'a>(target: &Target, config: &'a Config, config_path: &PathBuf, to_stop: &mut Vec<&'a Target>) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: warning if not a daemon?
     let mut resolved_requirements = vec![];
     if let Some(ref requires) = target.requires {
         for require in requires.iter() {
@@ -129,17 +156,97 @@ fn run_target_inner<'a>(target: &Target, config: &'a Config, config_path: &PathB
             find_target(require, &config.target).map_or_else(|| {
                 Err(Box::<dyn std::error::Error>::from(format!("Required target <{}> not found in config file <{}>", require, config_path.display())))
             }, |required_target| {
-                if required_target.daemon {
-                    debug!("Starting required target <{}> for target <{}>", require, target.name);
-                    start_target(required_target, config, config_path)?;
-                    to_stop.push(required_target);
-                } else {
-                    debug!("Running required target <{}> for target <{}>", require, target.name);
-                    run_target(required_target, config, config_path)?;
-                }
-                    resolved_requirements.push(required_target);
+                resolved_requirements.push(required_target);
                 Ok(())
             })?;
+        }
+    }
+    let last_run_path = metadata_path(target)?.join("last_run");
+    if let Some(ref if_files_changed) = target.if_files_changed {
+        debug!("Checking if files changed for target <{}>", target.name);
+        let last_run = match &target.updates_paths {
+            Some(ref updates_paths) => {
+                debug!("Checking if updates_paths have changed for target <{}>", target.name);
+                updates_paths.iter().map(|path| {
+                    substitute_variables(path, &variables_map(target, &resolved_requirements))
+                }).map(|path| {
+                    std::fs::metadata(&path).map_or_else(|_| {
+                        debug!("File <{}> does not exist for target <{}>", path, target.name);
+                        None
+                    }, |metadata| {
+                        Some(metadata.modified().unwrap())
+                    })
+                }).fold(Some(None), |acc, modified_time| {
+                    match (acc, modified_time) {
+                        (Some(None), Some(time)) => Some(Some(time)),
+                        (Some(Some(acc_time)), Some(time)) => {
+                            if time > acc_time {
+                                Some(Some(acc_time))
+                            } else {
+                                Some(Some(time))
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+            },
+            None => {
+                debug!("Checking last run time for target <{}> based on <{}>", target.name, last_run_path.display());
+                std::fs::metadata(&last_run_path).map_or_else(|_| {
+                    debug!("Last run file does not exist at <{}> for target <{}>", last_run_path.display(), target.name);
+                    Some(None)
+                }, |metadata| {
+                    Some(Some(metadata.modified().unwrap()))
+                })
+            },
+        };
+        debug!("Last run time: {:?}", last_run);
+        let mut run_again = false;
+        if let Some(last_run) = last_run {
+            if let Some(last_run) = last_run {
+                for file in if_files_changed.iter().map(
+                    |path| substitute_variables(path, &variables_map(target, &resolved_requirements))
+                    ) {
+                    for entry in glob(file.as_str())? {
+                        match entry {
+                            Ok(path) => {
+                                if !path.exists() {
+                                    debug!("Running task as file <{}> does not exist for target <{}>", path.display(), target.name);
+                                    run_again = true;
+                                } else {
+                                    let file_modified_time = std::fs::metadata(&path)?.modified()?;
+                                    if file_modified_time > last_run {
+                                        debug!("Running task as file <{}> was modified at <{:?}> for target <{}>", path.display(), file_modified_time, target.name);
+                                        run_again = true;
+                                    } else {
+                                        debug!("File <{}> was modified at <{:?}>, before target, for target <{}>", path.display(), file_modified_time, target.name);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Error globbing file <{}> for target <{}>: {}", file, target.name, e);
+                                run_again = true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                run_again = true;
+            }
+        }
+        if !run_again {
+            info!("[{}] Up to date", target.name);
+            return Ok(());
+        }
+    }
+    for required_target in resolved_requirements.iter() {
+        if required_target.daemon {
+            debug!("Starting required target <{}> for target <{}>", required_target.name, target.name);
+            start_target(required_target, config, config_path)?;
+            to_stop.push(required_target);
+        } else {
+            debug!("Running required target <{}> for target <{}>", required_target.name, target.name);
+            run_target(required_target, config, config_path)?;
         }
     }
     let command = resolve_command(target, resolved_requirements);
@@ -153,6 +260,9 @@ fn run_target_inner<'a>(target: &Target, config: &'a Config, config_path: &PathB
     if !status.success() {
         return Err(Box::from(format!("Command failed with exit code: {}", status.code().unwrap())));
     }
+    // TODO: check that updates_paths were created
+    let _ = create_metadata_dir(target)?;
+    File::create(last_run_path)?;
     Ok(())
 }
 
@@ -211,10 +321,23 @@ use daemonize::{Daemonize, Outcome};
         }
 */
 
-fn start_target(target: &Target, _config: &Config, _config_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let taskrunner_dir = std::env::current_dir()?.join(".taskrunner").join(target.name.as_str());
-    debug!("Creating daemon dir for target <{}> at <{}>", target.name, taskrunner_dir.display());
+fn metadata_path(target: &Target) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    Ok(std::env::current_dir()?.join(".taskrunner").join(target.name.as_str()))
+}
+
+fn create_metadata_dir(target: &Target) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let taskrunner_dir = metadata_path(target)?;
+    debug!("Creating metadata dir for target <{}> at <{}>", target.name, taskrunner_dir.display());
     std::fs::create_dir_all(&taskrunner_dir)?;
+    Ok(taskrunner_dir)
+}
+
+fn start_target(target: &Target, _config: &Config, _config_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    if !target.daemon {
+        warn!("Target <{}> is not a daemon, did you mean to use `run` instead?", target.name);
+    }
+
+    let taskrunner_dir = create_metadata_dir(target)?;
 
     let pid_path = taskrunner_dir.join("pid");
     if pid_path.exists() {
@@ -311,9 +434,30 @@ fn do_stop(_args: &Args, cmd: &StopCommand, config: &Config, config_path: &PathB
     })
 }
 
+fn convert_config(config: &Config) -> Result<Config, Box<dyn std::error::Error>> {
+    let mut new_config = config.clone();
+    if let Some(ref container_build) = config.container_build {
+        for build in container_build.iter() {
+            debug!("Converting container build <{}> to target", build.name);
+            let target = Target {
+                name: build.name.clone(),
+                command: format!("podman build -t \"{}\" \"{}\"", build.tag, build.context),
+                variables: build.variables.clone(),
+                requires: build.requires.clone(),
+                daemon: false,
+                if_files_changed: build.if_files_changed.clone(),
+                updates_paths: None,
+            };
+            new_config.target.push(target);
+        }
+    }
+    Ok(new_config)
+}
+
 fn load_and_validate_config(config_path: &PathBuf) -> Result<Config, Box<dyn std::error::Error>> {
     let config_str = std::fs::read_to_string(config_path)?;
-    let config: Config = toml::from_str(config_str.as_str())?;
+    let mut config: Config = toml::from_str(config_str.as_str())?;
+    config = convert_config(&config)?;
     let mut uniq = HashSet::new();
     let dupes = config.target.iter().filter(|x| !uniq.insert(x.name.as_str()));
     let dupe_names = dupes.map(|x| x.name.clone()).collect::<HashSet<_>>();
