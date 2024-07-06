@@ -1,0 +1,15 @@
+[package]
+name = "taskrunner"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.5.5", features = ["derive"] }
+daemonize = "0.5.0"
+env_logger = "0.11.3"
+log = "0.4.22"
+nix = { version = "0.29.0", features = ["signal"] }
+serde = { version = "1.0.203", features = ["derive"] }
+toml = "0.8.14"
