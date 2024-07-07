@@ -108,6 +108,9 @@ impl Runnable for Container {
         let command = container_run_command(self, context, container_name.as_str()).map_err(|e| {
             format!("Error escaping podman command for <{}>: {}", self.name, e)
         })?;
+        for pre_command in command.pre_commands.iter() {
+            run_command(pre_command.as_str())?;
+        }
         debug!(
             "Running container for target <{}> with command <{:?}>",
             self.name, self.command
@@ -115,10 +118,11 @@ impl Runnable for Container {
         info!("[{}] Running container using {}", self.name, context.resolve_substitutions(self.image.as_str(), self.name.as_str()));
         let container_name = command.name;
         cleanup_manager.lock().unwrap().push_cleanup(move || {
-            let stop_command = format!("podman stop {}", container_name);
+            let stop_command = format!("podman stop -i {}", container_name);
             run_command(stop_command.as_str()).unwrap();
         });
         run_command(command.command.as_str())
+        // TODO: post stop commands
     }
 }
 

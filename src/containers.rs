@@ -20,7 +20,7 @@ pub fn run_command(container: &Container, context: &Context, container_name: &st
         &container
             .mount
             .as_ref()
-            .map(|m| m.iter().map(|(k, v)| format!("{}:{}", k, v)).collect()),
+            .map(|m| m.iter().map(|(k, v)| format!("{}:{}", shellexpand::tilde(k), v)).collect()),
     )?;
     let workdir_str = escape_and_prepend(target_name, context, "-w", &container.workdir)?;
     let cmd_str = container
