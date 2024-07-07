@@ -54,6 +54,9 @@ pub struct Container {
     pub command: Option<String>,
     pub mount: Option<HashMap<String, String>>,
     pub workdir: Option<String>,
+    pub network: Option<String>,
+    #[serde(default = "default_false")]
+    pub create_network: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +112,14 @@ impl<'a> Target<'a> {
             Target::Container(c) => c.daemon,
         }
     }
+
+    pub fn variables(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            Target::Command(c) => c.variables.as_ref(),
+            Target::ContainerBuild(c) => c.variables.as_ref(),
+            Target::Container(c) => c.variables.as_ref(),
+        }
+    }
 }
 
 pub const CONFIG_FILE_NAME: &str = "taskrunner.toml";
@@ -156,7 +167,10 @@ impl Config {
         let dupes = targets.iter().filter(|x| !uniq.insert(x.name()));
         let dupe_names = dupes.map(|x| x.name()).collect::<HashSet<_>>();
         if !dupe_names.is_empty() {
-            return Err(Box::from(format!("Duplicate target names found in config file: {}", dupe_names.into_iter().collect::<Vec<_>>().join(", "))));
+            return Err(Box::from(format!(
+                "Duplicate target names found in config file: {}",
+                dupe_names.into_iter().collect::<Vec<_>>().join(", ")
+            )));
         }
         // TODO: validations for targets, e.g. command isn't empty string
         Ok(())

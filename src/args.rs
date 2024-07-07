@@ -43,6 +43,5 @@ pub enum Commands {
 
     /// Stop a daemon
     Stop(StopCommand),
-
     // TODO: status, logs
 }
