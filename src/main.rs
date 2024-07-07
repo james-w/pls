@@ -14,6 +14,7 @@ mod config;
 mod containers;
 mod context;
 mod runner;
+mod shell;
 
 use args::{Args, Commands, RunCommand, StartCommand, StopCommand};
 use cleanup::CleanupManager;

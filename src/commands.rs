@@ -1,74 +1,9 @@
 use std::fs::File;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use log::{debug, warn};
+use log::debug;
 use nix::errno::Errno;
-
-use crate::{context::Context, cleanup::CleanupManager};
-
-pub fn escape_string(s: &str) -> Result<String, shlex::QuoteError> {
-    Ok(shlex::try_quote(s)?.to_string())
-}
-
-pub fn prepend_argument_if_set(arg: &str, value: &Option<&str>) -> Result<String, shlex::QuoteError> {
-    prepend_arguments_if_set(arg, &value.map(|v| vec![v]))
-}
-
-pub fn prepend_arguments_if_set(
-    arg: &str,
-    value: &Option<Vec<&str>>,
-) -> Result<String, shlex::QuoteError> {
-    value.as_ref().map_or_else(
-        || Ok("".to_string()),
-        |v| {
-            v.iter()
-                .map(|e| escape_string(e).map(|e| format!("{} {}", arg, e)))
-                .collect::<Result<Vec<_>, _>>()
-                .map(|vs| vs.join(" "))
-        },
-    )
-}
-
-pub fn escape_and_prepend(
-    target_name: &str,
-    context: &Context,
-    arg: &str,
-    value: &Option<String>,
-) -> Result<String, shlex::QuoteError> {
-    if let Some(v) = value {
-        prepend_argument_if_set(
-            arg,
-            &Some(
-                context
-                    .resolve_substitutions(v.as_ref(), target_name)
-                    .as_str(),
-            ),
-        )
-    } else {
-        Ok("".to_string())
-    }
-}
-
-pub fn escape_and_prepend_vec(
-    target_name: &str,
-    context: &Context,
-    arg: &str,
-    value: &Option<Vec<String>>,
-) -> Result<String, shlex::QuoteError> {
-    if let Some(v) = value {
-        let resolved = v.iter()
-                    .map(|ref e| context.resolve_substitutions(e, target_name))
-                    .collect::<Vec<_>>();
-        prepend_arguments_if_set(
-            arg,
-            &Some(resolved.iter().map(|e| e.as_str()).collect()),
-        )
-    } else {
-        Ok("".to_string())
-    }
-}
 
 pub fn build_command(command: &str) -> Result<std::process::Command, Box<dyn std::error::Error>> {
     let mut split = shlex::Shlex::new(command);
@@ -168,25 +103,25 @@ pub fn run_command(cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = build_command(cmd)?;
-    let mut child = cmd.spawn()?;
-    let id = child.id();
-    cleanup_manager.lock().unwrap().push_cleanup(move || {
-        if let Err(e) = stop_process(nix::unistd::Pid::from_raw(id as i32)) {
-            warn!("Error stopping child process: {}", e);
-        }
-    });
-    let status = child.wait()?;
-    cleanup_manager.lock().unwrap().pop_cleanup();
-    if !status.success() {
-        return Err(Box::from(format!(
-            "Command failed with exit code: {}",
-            status.code().unwrap()
-        )));
-    }
-    Ok(())
-}
+// pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
+//     let mut cmd = build_command(cmd)?;
+//     let mut child = cmd.spawn()?;
+//     let id = child.id();
+//     cleanup_manager.lock().unwrap().push_cleanup(move || {
+//         if let Err(e) = stop_process(nix::unistd::Pid::from_raw(id as i32)) {
+//             warn!("Error stopping child process: {}", e);
+//         }
+//     });
+//     let status = child.wait()?;
+//     cleanup_manager.lock().unwrap().pop_cleanup();
+//     if !status.success() {
+//         return Err(Box::from(format!(
+//             "Command failed with exit code: {}",
+//             status.code().unwrap()
+//         )));
+//     }
+//     Ok(())
+// }
 
 pub fn spawn_command_with_pidfile(
     cmd: &str,
@@ -263,3 +198,48 @@ use daemonize::{Daemonize, Outcome};
             }
         }
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_command_splits() {
+        let cmd = build_command("echo hello").unwrap();
+        assert_eq!(cmd.get_program(), "echo");
+        assert_eq!(cmd.get_args().collect::<Vec<_>>(), &["hello"]);
+    }
+
+    #[test]
+    fn test_is_process_alive() {
+        let pid = nix::unistd::Pid::from_raw(std::process::id() as i32);
+        assert!(is_process_alive(pid));
+    }
+
+    #[test]
+    fn test_is_process_alive_on_dead_process() {
+        let pid = nix::unistd::Pid::from_raw(-2);
+        assert!(!is_process_alive(pid));
+    }
+
+    #[test]
+    fn test_send_signal() {
+        send_signal(nix::unistd::Pid::from_raw(std::process::id() as i32), nix::sys::signal::SIGWINCH).unwrap();
+    }
+
+    #[test]
+    fn test_send_signal_on_dead_process() {
+        assert!(send_signal(nix::unistd::Pid::from_raw(-2), nix::sys::signal::SIGWINCH).is_err());
+    }
+
+    #[test]
+    fn test_stop_process() {
+        let start = std::time::Instant::now();
+        let child = build_command("sleep 4").unwrap().spawn().unwrap();
+        let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+        assert!(is_process_alive(pid));
+        stop_process(pid).unwrap();
+        assert!(!is_process_alive(pid));
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+}

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use log::debug;
 use serde::Deserialize;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Default)]
 pub struct Config {
     // Rename to command?
     pub target: Option<Vec<Command>>,

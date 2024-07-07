@@ -1,6 +1,6 @@
 use crate::config::Container;
 use crate::context::Context;
-use crate::commands::{escape_string, escape_and_prepend, escape_and_prepend_vec};
+use crate::shell::{escape_string, escape_and_prepend, escape_and_prepend_vec};
 
 pub struct ContainerCommand {
     pub pre_commands: Vec<String>,

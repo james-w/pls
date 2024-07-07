@@ -8,7 +8,7 @@ use log::{debug, info, warn};
 use rand::Rng;
 
 use crate::cleanup::CleanupManager;
-use crate::commands::{build_command, is_process_alive, run_command, spawn_command_with_pidfile, stop_process, run_command_with_cleanup};
+use crate::commands::{build_command, is_process_alive, run_command, spawn_command_with_pidfile, stop_process};
 use crate::config::{Command, Config, Container, ContainerBuild, Target};
 use crate::containers::run_command as container_run_command;
 use crate::context::Context;
