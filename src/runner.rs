@@ -1,32 +1,34 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use glob::glob;
 use log::{debug, info, warn};
 use rand::Rng;
 
-use crate::commands::{build_command, is_process_alive, run_command, spawn_command_with_pidfile, stop_process};
+use crate::cleanup::CleanupManager;
+use crate::commands::{build_command, is_process_alive, run_command, spawn_command_with_pidfile, stop_process, run_command_with_cleanup};
 use crate::config::{Command, Config, Container, ContainerBuild, Target};
 use crate::containers::run_command as container_run_command;
 use crate::context::Context;
 
 trait Runnable {
-    fn run(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>>;
+    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 impl<'a> Runnable for Target<'a> {
-    fn run(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Target::Command(command) => command.run(context),
-            Target::ContainerBuild(build) => build.run(context),
-            Target::Container(container) => container.run(context),
+            Target::Command(command) => command.run(context, cleanup_manager),
+            Target::ContainerBuild(build) => build.run(context, cleanup_manager),
+            Target::Container(container) => container.run(context, cleanup_manager),
         }
     }
 }
 
 impl Runnable for Command {
-    fn run(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(&self, context: &mut Context, _cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
         let command = resolve_command(self, context);
         debug!("Running target <{}> with command <{}>", self.name, command);
         info!("[{}] Running {}", self.name, command);
@@ -53,7 +55,7 @@ fn rand_string(length: usize) -> String {
 }
 
 impl Runnable for ContainerBuild {
-    fn run(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(&self, context: &mut Context, _cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
         let tag = context.resolve_substitutions(self.tag.as_str(), self.name.as_str());
         let container_context =
             context.resolve_substitutions(self.context.as_str(), self.name.as_str());
@@ -101,7 +103,7 @@ impl Runnable for ContainerBuild {
 }
 
 impl Runnable for Container {
-    fn run(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
         let container_name = format!("{}-{}", self.name, rand_string(8));
         let command = container_run_command(self, context, container_name.as_str()).map_err(|e| {
             format!("Error escaping podman command for <{}>: {}", self.name, e)
@@ -111,15 +113,12 @@ impl Runnable for Container {
             self.name, self.command
         );
         info!("[{}] Running container using {}", self.name, context.resolve_substitutions(self.image.as_str(), self.name.as_str()));
-        let mut cmd = build_command(command.command.as_str())?;
-        let status = cmd.status()?;
-        if !status.success() {
-            return Err(Box::from(format!(
-                "Command failed with exit code: {}",
-                status.code().unwrap()
-            )));
-        }
-        Ok(())
+        let container_name = command.name;
+        cleanup_manager.lock().unwrap().push_cleanup(move || {
+            let stop_command = format!("podman stop {}", container_name);
+            run_command(stop_command.as_str()).unwrap();
+        });
+        run_command(command.command.as_str())
     }
 }
 
@@ -433,6 +432,7 @@ fn run_target_inner<'a>(
     config_path: &PathBuf,
     context: &mut Context,
     to_stop: &mut Vec<Target<'a>>,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug!(
         "Running target <{}>, with definition <{:?}>",
@@ -447,7 +447,7 @@ fn run_target_inner<'a>(
                 required_target.name(),
                 target.name()
             );
-            start_target(&required_target, config, config_path, context)?;
+            start_target(&required_target, config, config_path, context, cleanup_manager.clone())?;
             to_stop.push(required_target.clone());
         } else {
             debug!(
@@ -455,7 +455,7 @@ fn run_target_inner<'a>(
                 required_target.name(),
                 target.name()
             );
-            run_target(&required_target, config, config_path, context)?;
+            run_target(&required_target, config, config_path, context, cleanup_manager.clone())?;
         }
     }
     if !should_rerun(target, resolved_requirements, context)? {
@@ -466,7 +466,7 @@ fn run_target_inner<'a>(
         info!("[{}] Up to date", target.name());
         return Ok(());
     }
-    target.run(context)?;
+    target.run(context, cleanup_manager)?;
     // TODO: check that updates_paths were created?
     let _ = create_metadata_dir(target.name())?;
     File::create(last_run_path(target)?)?;
@@ -478,9 +478,11 @@ pub fn run_target(
     config: &Config,
     config_path: &PathBuf,
     context: &mut Context,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut to_stop = vec![];
-    let result = run_target_inner(target, config, config_path, context, &mut to_stop);
+    let result = run_target_inner(target, config, config_path, context, &mut to_stop, cleanup_manager);
+    // TODO: use cleanup manager to handle the to_stop stuff?
     // Reverse the order that they were started
     to_stop.reverse();
     for target in to_stop.iter() {
@@ -498,6 +500,7 @@ pub fn start_target_inner<'a>(
     config_path: &PathBuf,
     context: &mut Context,
     to_stop: &mut Vec<Target<'a>>,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !target.daemon() {
         warn!(
@@ -519,7 +522,7 @@ pub fn start_target_inner<'a>(
                 required_target.name(),
                 target.name()
             );
-            start_target(required_target, config, config_path, context)?;
+            start_target(required_target, config, config_path, context, cleanup_manager.clone())?;
             to_stop.push(required_target.clone());
         } else {
             debug!(
@@ -527,7 +530,7 @@ pub fn start_target_inner<'a>(
                 required_target.name(),
                 target.name()
             );
-            run_target(required_target, config, config_path, context)?;
+            run_target(required_target, config, config_path, context, cleanup_manager.clone())?;
         }
     }
     target.start(context)
@@ -538,9 +541,10 @@ pub fn start_target(
     config: &Config,
     config_path: &PathBuf,
     context: &mut Context,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut to_stop = vec![];
-    let result = start_target_inner(target, config, config_path, context, &mut to_stop);
+    let result = start_target_inner(target, config, config_path, context, &mut to_stop, cleanup_manager);
     if let Err(_) = result {
         // Reverse the order that they were started
         to_stop.reverse();

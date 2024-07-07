@@ -1,9 +1,12 @@
 use std::fs::File;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use log::debug;
+use log::{debug, warn};
 use nix::errno::Errno;
 
-use crate::context::Context;
+use crate::{context::Context, cleanup::CleanupManager};
 
 pub fn escape_string(s: &str) -> Result<String, shlex::QuoteError> {
     Ok(shlex::try_quote(s)?.to_string())
@@ -93,25 +96,34 @@ pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
     }
 }
 
-fn send_kill_signal(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Error>> {
-    match nix::sys::signal::kill(pid, nix::sys::signal::SIGTERM) {
+fn send_signal(pid: nix::unistd::Pid, signal: nix::sys::signal::Signal) -> Result<(), Box<dyn std::error::Error>> {
+    debug!("Sending <{}> to process <{}>", signal, pid);
+    match nix::sys::signal::kill(pid, signal) {
         Ok(_) => Ok(()),
         Err(e) => Err(Box::from(e)),
     }
 }
 
 pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: don't send signal on every loop
-    // TODO: switch to SIGKILL after a timeout
+    let mut signal = nix::sys::signal::SIGTERM;
+    let start = std::time::Instant::now();
+    send_signal(pid, signal).map_err(|e| {
+        Box::<dyn std::error::Error>::from(format!(
+            "Error sending kill signal to process <{}>: {}",
+            pid, e
+        ))
+    })?;
     while is_process_alive(pid) {
-        debug!("Sending SIGTERM to process <{}>", pid);
-        send_kill_signal(pid).map_err(|e| {
-            Box::<dyn std::error::Error>::from(format!(
-                "Error sending kill signal to process <{}>: {}",
-                pid, e
-            ))
-        })?;
-        nix::sys::wait::waitpid(pid, None)
+        if start.elapsed() > Duration::from_secs(10) {
+            signal = nix::sys::signal::SIGKILL;
+            send_signal(pid, signal).map_err(|e| {
+                Box::<dyn std::error::Error>::from(format!(
+                    "Error sending kill signal to process <{}>: {}",
+                    pid, e
+                ))
+            })?;
+        }
+        let status = nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG))
             .map_or_else(
                 |err| {
                     if err == Errno::ECHILD {
@@ -128,7 +140,18 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Err
                     pid, e
                 ))
             })?;
-        break;
+        if let Some(status) = status {
+            match status {
+                nix::sys::wait::WaitStatus::Exited(_, _) => {
+                    debug!("Process <{}> exited", pid);
+                    break;
+                }
+                _ => {
+                    debug!("Process <{}> still alive, sleeping", pid);
+                    thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -136,6 +159,26 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Err
 pub fn run_command(cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = build_command(cmd)?;
     let status = cmd.status()?;
+    if !status.success() {
+        return Err(Box::from(format!(
+            "Command failed with exit code: {}",
+            status.code().unwrap()
+        )));
+    }
+    Ok(())
+}
+
+pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = build_command(cmd)?;
+    let mut child = cmd.spawn()?;
+    let id = child.id();
+    cleanup_manager.lock().unwrap().push_cleanup(move || {
+        if let Err(e) = stop_process(nix::unistd::Pid::from_raw(id as i32)) {
+            warn!("Error stopping child process: {}", e);
+        }
+    });
+    let status = child.wait()?;
+    cleanup_manager.lock().unwrap().pop_cleanup();
     if !status.success() {
         return Err(Box::from(format!(
             "Command failed with exit code: {}",
