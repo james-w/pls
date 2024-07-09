@@ -7,7 +7,7 @@
 * :heavy_check_mark: Define commands to run
 * :heavy_check_mark: One-shot and daemon (start/stop)
 * :heavy_check_mark: Dependencies - before and while
-* :heavy_check_mark: Types: shell, docker, cargo, ...
+* :heavy_check_mark: Types: exec, docker, shell, cargo, ...
 * :heavy_check_mark: Templates to be able to define one target, and then run it multiple ways?
 * :heavy_check_mark: Arguments to allow passing extra args from cli
 * :heavy_check_mark: Defaults for those arguments
