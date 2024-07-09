@@ -1,6 +1,5 @@
 use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 
 use glob::glob;
@@ -8,28 +7,50 @@ use log::{debug, info, warn};
 use rand::Rng;
 
 use crate::cleanup::CleanupManager;
-use crate::commands::{build_command, is_process_alive, run_command, spawn_command_with_pidfile, stop_process};
-use crate::config::{Command, Config, Container, ContainerBuild, Target};
+use crate::commands::{is_process_alive, build_command, run_command, spawn_command_with_pidfile, stop_process};
 use crate::containers::run_command as container_run_command;
-use crate::context::Context;
+use crate::context::{
+    Target, CommandLookupResult, ContainerCommand, Context, ExecCommand, OutputsManager, ContainerBuild,
+};
 
 trait Runnable {
-    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>>;
+    fn run(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-impl<'a> Runnable for Target<'a> {
-    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
+impl<'a> Runnable for Target {
+    fn run(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Target::Command(command) => command.run(context, cleanup_manager),
-            Target::ContainerBuild(build) => build.run(context, cleanup_manager),
-            Target::Container(container) => container.run(context, cleanup_manager),
+            Target::Exec(command) => command.run(context, outputs, cleanup_manager, args),
+            Target::Container(container) => {
+                container.run(context, outputs, cleanup_manager, args)
+            },
+            Target::ContainerBuild(cb) => cb.run(context, outputs, cleanup_manager, args),
         }
     }
 }
 
-impl Runnable for Command {
-    fn run(&self, context: &mut Context, _cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
-        let command = resolve_command(self, context);
+impl Runnable for ExecCommand {
+    fn run(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: default_args
+        let command = resolve_command(self, context, outputs, args)?;
         debug!("Running target <{}> with command <{}>", self.name, command);
         info!("[{}] Running {}", self.name, command);
         // TODO: cwd
@@ -55,10 +76,10 @@ fn rand_string(length: usize) -> String {
 }
 
 impl Runnable for ContainerBuild {
-    fn run(&self, context: &mut Context, _cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
-        let tag = context.resolve_substitutions(self.tag.as_str(), self.name.as_str());
+    fn run(&self, context: &Context, outputs: &mut OutputsManager, _cleanup_manager: Arc<Mutex<CleanupManager>>, _args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+        let tag = context.resolve_substitutions(self.tag.as_str(), &self.name, outputs)?;
         let container_context =
-            context.resolve_substitutions(self.context.as_str(), self.name.as_str());
+            context.resolve_substitutions(self.context.as_str(), &self.name, outputs)?;
         let command = format!("podman build -t \"{}\" \"{}\"", tag, container_context);
         debug!(
             "Building container for target <{}> with command <{}>",
@@ -72,7 +93,6 @@ impl Runnable for ContainerBuild {
         let (tx, rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
             let stdout_reader = BufReader::new(child_stdout);
-            use std::io::BufRead;
             let mut last_line = String::new();
             for line in stdout_reader.lines() {
                 match line {
@@ -96,18 +116,24 @@ impl Runnable for ContainerBuild {
             )));
         }
         for line in rx.try_iter() {
-            context.store_output(self.name.as_str(), "sha", line.as_str());
+            outputs.store_output(self.name.clone(), "sha", line.as_str());
         }
         Ok(())
     }
 }
 
-impl Runnable for Container {
-    fn run(&self, context: &mut Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
+impl Runnable for ContainerCommand {
+    fn run(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let container_name = format!("{}-{}", self.name, rand_string(8));
-        let command = container_run_command(self, context, container_name.as_str()).map_err(|e| {
-            format!("Error escaping podman command for <{}>: {}", self.name, e)
-        })?;
+        // TODO: default_args
+        let command = container_run_command(self, context, outputs, container_name.as_str(), args)
+            .map_err(|e| format!("Error escaping podman command for <{}>: {}", self.name, e))?;
         for pre_command in command.pre_commands.iter() {
             run_command(pre_command.as_str())?;
         }
@@ -115,38 +141,69 @@ impl Runnable for Container {
             "Running container for target <{}> with command <{:?}>",
             self.name, self.command
         );
-        info!("[{}] Running container using {}", self.name, context.resolve_substitutions(self.image.as_str(), self.name.as_str()));
+        info!(
+            "[{}] Running container using {}",
+            self.name.name,
+            context.resolve_substitutions(
+                self.image.as_str(),
+                &self.name,
+                outputs
+            )?
+        );
         let container_name = command.name;
+        for post_command in command.post_stop_commands.into_iter() {
+            cleanup_manager.lock().unwrap().push_cleanup(move || {
+                debug!("Running post stop command <{}>", post_command);
+                run_command(post_command.as_str()).unwrap();
+            });
+        }
         cleanup_manager.lock().unwrap().push_cleanup(move || {
             let stop_command = format!("podman stop -i {}", container_name);
+            debug!("Stopping container with command <{}>", stop_command);
             run_command(stop_command.as_str()).unwrap();
         });
-        run_command(command.command.as_str())
-        // TODO: post stop commands
+        let result = run_command(command.command.as_str());
+        result
     }
 }
 
 trait Startable {
-    fn start(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>>;
+    fn start(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-impl<'a> Startable for Target<'a> {
-    fn start(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+impl<'a> Startable for Target {
+    fn start(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match self {
-            Target::Command(command) => command.start(context),
-            Target::ContainerBuild(build) => build.start(context),
-            Target::Container(container) => container.start(context),
+            Target::Exec(command) => command.start(context, outputs, args),
+            Target::Container(container) => container.start(context, outputs, args),
+            Target::ContainerBuild(_) => unimplemented!(),
         }
     }
 }
 
-impl Startable for Command {
-    fn start(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
-        let taskrunner_dir = create_metadata_dir(self.name.as_str())?;
+impl Startable for ExecCommand {
+    fn start(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let taskrunner_dir = create_metadata_dir(self.name.to_string().as_str())?;
 
         let pid_path = taskrunner_dir.join("pid");
         let log_path = taskrunner_dir.join("log");
-        let cmd = resolve_command(self, context);
+        // TODO: default_args
+        let cmd = resolve_command(self, context, outputs, args)?;
         let log_start = || {
             info!("[{}] Starting {}", self.name, cmd);
         };
@@ -154,50 +211,106 @@ impl Startable for Command {
     }
 }
 
-impl Startable for ContainerBuild {
-    fn start(&self, _context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
-        unimplemented!()
-    }
-}
+// impl Startable for ContainerBuild {
+//     fn start(&self, _context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+//         unimplemented!()
+//     }
+// }
 
-impl Startable for Container {
-    fn start(&self, context: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+impl Startable for ContainerCommand {
+    fn start(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        args: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let container_name = format!("{}-{}", self.name, rand_string(8));
-        let command = container_run_command(self, context, container_name.as_str()).map_err(|e| {
-            format!("Error escaping podman command for <{}>: {}", self.name, e)
-        })?;
+        // TODO: default_args
+        let command = container_run_command(self, context, outputs, container_name.as_str(), args)
+            .map_err(|e| format!("Error escaping podman command for <{}>: {}", self.name, e))?;
         debug!(
             "Running container for target <{}> with command <{:?}>",
             self.name, self.command
         );
 
-        let taskrunner_dir = create_metadata_dir(self.name.as_str())?;
+        let taskrunner_dir = create_metadata_dir(self.name.to_string().as_str())?;
         let pid_path = taskrunner_dir.join("pid");
         let log_path = taskrunner_dir.join("log");
+        let image_name = context.resolve_substitutions(
+            self.image.as_str(),
+            &self.name,
+            outputs,
+        )?;
         let log_start = || {
-            info!("[{}] Starting container using {}", self.name, context.resolve_substitutions(self.image.as_str(), self.name.as_str()));
+            info!("[{}] Starting container using {}", self.name, image_name);
         };
         for pre_command in command.pre_commands.iter() {
             run_command(pre_command.as_str())?;
         }
         spawn_command_with_pidfile(command.command.as_str(), &pid_path, &log_path, log_start)?;
         // TODO: post_stop_commands
-        context.store_output(self.name.as_str(), "name", command.name.as_str());
+        outputs.store_output(self.name.clone(), "name", command.name.as_str());
         if let Some(network) = command.network {
-            context.store_output(self.name.as_str(), "network", network.as_str());
+            outputs.store_output(self.name.clone(), "network", network.as_str());
         }
         Ok(())
     }
 }
 
-fn resolve_command(target: &Command, context: &Context) -> String {
+trait Buildable {
+    fn build(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+impl<'a> Buildable for Target {
+    fn build(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            Target::Exec(_) => unimplemented!(),
+            Target::Container(_) => unimplemented!(),
+            Target::ContainerBuild(cb) => cb.build(context, outputs, cleanup_manager),
+        }
+    }
+}
+
+impl<'a> Buildable for ContainerBuild {
+    fn build(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.run(context, outputs, cleanup_manager, vec![])
+    }
+}
+
+fn resolve_command(
+    target: &ExecCommand,
+    context: &Context,
+    outputs: &OutputsManager,
+    args: Vec<String>,
+) -> Result<String, String> {
     debug!(
-        "Resolving command <{}> for target <{}>",
-        target.command, target.name
+        "Resolving command <{}> for target <{}> with args <{:?}>",
+        target.command, target.name, args
     );
-    let resolved = context.resolve_substitutions(target.command.as_str(), target.name.as_str());
+    let resolved = context.resolve_substitutions_with_args(
+        target.command.as_str(),
+        &target.name,
+        outputs,
+        args,
+        &target.default_args,
+    )?;
     debug!("Resolved command to <{}>", resolved);
-    resolved
+    Ok(resolved)
 }
 
 fn metadata_path(name: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
@@ -215,32 +328,36 @@ fn create_metadata_dir(name: &str) -> Result<std::path::PathBuf, Box<dyn std::er
     Ok(taskrunner_dir)
 }
 
-fn find_required<'a>(
+fn find_required(
     target: &Target,
-    config: &'a Config,
-) -> Result<Vec<Target<'a>>, Box<dyn std::error::Error>> {
+    context: &Context,
+) -> Result<Vec<Target>, Box<dyn std::error::Error>> {
     let mut resolved_requirements = vec![];
-    if let Some(ref requires) = target.requires() {
-        for require in requires.iter() {
-            if require == &target.name() {
-                return Err(Box::from(format!(
-                    "Target <{}> requires itself",
-                    target.name()
-                )));
-            }
-            config.find_target(require).map_or_else(
-                || {
-                    Err(Box::<dyn std::error::Error>::from(format!(
-                        "Required target <{}> not found in config file",
-                        require
-                    )))
-                },
-                |required_target| {
-                    resolved_requirements.push(required_target);
-                    Ok(())
-                },
-            )?;
+    for require in target.requires().iter() {
+        if require == &target.name() {
+            return Err(Box::from(format!(
+                "Target <{}> requires itself",
+                target.name()
+            )));
         }
+        match context.get_command(require) {
+            CommandLookupResult::Found(target) => {
+                resolved_requirements.push(target);
+            },
+            CommandLookupResult::NotFound => {
+                return Err(Box::from(format!(
+                    "Target <{}> not found in config file <{}>",
+                    require,
+                    context.config_path,
+                )))
+            },
+            CommandLookupResult::Duplicates(duplicates) => {
+                return Err(Box::from(format!(
+                    "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
+                    require, duplicates.join(", ")
+                )))
+            },
+        };
     }
     Ok(resolved_requirements)
 }
@@ -316,12 +433,17 @@ fn latest_update_time_of_paths(
     paths: &Vec<String>,
     target: &Target,
     context: &Context,
+    outputs: &OutputsManager,
 ) -> Result<LastRun, Box<dyn std::error::Error>> {
     // Where do the Err values go?
     let update_times: Result<Vec<Vec<LastRun>>, Box<dyn std::error::Error>> = paths
         .iter()
-        .map(|path| context.resolve_substitutions(path, target.name()))
-        .map(|path| update_times_of_glob(path.as_str()))
+        .map(|path| {
+            context
+                .resolve_substitutions(path, &target.fully_qualified_name(), outputs)
+                .map_err(|e| Box::from(e))
+        })
+        .map(|path| path.and_then(|path| update_times_of_glob(path.as_str())))
         .collect();
     Ok(latest_update_time(
         update_times?.into_iter().flatten().collect(),
@@ -332,19 +454,28 @@ fn latest_update_time_of_paths_ignoring_missing(
     paths: &Vec<String>,
     target: &Target,
     context: &Context,
+    outputs: &OutputsManager,
 ) -> Result<LastRun, Box<dyn std::error::Error>> {
     // Where do the Err values go?
     let update_times: Result<Vec<Vec<LastRun>>, Box<dyn std::error::Error>> = paths
         .iter()
-        .map(|path| context.resolve_substitutions(path, target.name()))
-        .map(|path| update_times_of_glob_ignoring_missing(path.as_str()))
+        .map(|path| {
+            context
+                .resolve_substitutions(path, &target.fully_qualified_name(), outputs)
+                .map_err(|e| Box::from(e))
+        })
+        .map(|path| path.and_then(|path| update_times_of_glob_ignoring_missing(path.as_str())))
         .collect();
     Ok(latest_update_time(
         update_times?.into_iter().flatten().collect(),
     ))
 }
 
-fn last_run(target: &Target, context: &Context) -> Result<LastRun, Box<dyn std::error::Error>> {
+fn last_run(
+    target: &Target,
+    context: &Context,
+    outputs: &OutputsManager,
+) -> Result<LastRun, Box<dyn std::error::Error>> {
     let last_run_path = last_run_path(target)?;
     match target.updates_paths() {
         Some(ref updates_paths) => {
@@ -352,7 +483,7 @@ fn last_run(target: &Target, context: &Context) -> Result<LastRun, Box<dyn std::
                 "Checking if updates_paths have changed for target <{}>",
                 target.name()
             );
-            latest_update_time_of_paths(updates_paths, target, context)
+            latest_update_time_of_paths(updates_paths, target, context, outputs)
         }
         None => {
             debug!(
@@ -377,17 +508,22 @@ fn last_run(target: &Target, context: &Context) -> Result<LastRun, Box<dyn std::
 
 fn should_rerun(
     target: &Target,
-    resolved_requirements: Vec<Target>,
+    resolved_requirements: &Vec<Target>,
     context: &Context,
+    outputs: &OutputsManager,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(ref if_files_changed) = target.if_files_changed() {
         debug!("Checking if files changed for target <{}>", target.name());
-        let last_run = last_run(target, context)?;
+        let last_run = last_run(target, context, outputs)?;
         debug!("Last run time: {:?}", last_run);
         let mut run_again = false;
         if let LastRun::Time(last_run) = last_run {
-            let latest_time_of_deps =
-                latest_update_time_of_paths_ignoring_missing(if_files_changed, target, context)?;
+            let latest_time_of_deps = latest_update_time_of_paths_ignoring_missing(
+                if_files_changed,
+                target,
+                context,
+                outputs,
+            )?;
             debug!("Latest time on dependencies: {:?}", latest_time_of_deps);
             if let LastRun::Time(latest_time_of_deps) = latest_time_of_deps {
                 if latest_time_of_deps > last_run {
@@ -432,46 +568,49 @@ fn should_rerun(
 
 fn run_target_inner<'a>(
     target: &'a Target,
-    config: &'a Config,
-    config_path: &PathBuf,
-    context: &mut Context,
-    to_stop: &mut Vec<Target<'a>>,
+    context: &'a Context,
+    outputs: &mut OutputsManager,
+    to_stop: &mut Vec<Target>,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
+    args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug!(
         "Running target <{}>, with definition <{:?}>",
         target.name(),
         target
     );
-    let resolved_requirements = find_required(target, config)?;
-    for required_target in resolved_requirements.iter() {
+    let resolved_requirements = find_required(target, context)?;
+    for required_target in resolved_requirements.clone().into_iter() {
         if required_target.daemon() {
             debug!(
                 "Starting required target <{}> for target <{}>",
                 required_target.name(),
                 target.name()
             );
-            start_target(&required_target, config, config_path, context, cleanup_manager.clone())?;
-            to_stop.push(required_target.clone());
+            start_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
+            to_stop.push(required_target);
         } else {
             debug!(
                 "Running required target <{}> for target <{}>",
                 required_target.name(),
                 target.name()
             );
-            run_target(&required_target, config, config_path, context, cleanup_manager.clone())?;
+            run_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
         }
     }
-    if !should_rerun(target, resolved_requirements, context)? {
-        debug!(
-            "Skipping target <{}> as it does not need to be run",
-            target.name()
-        );
-        info!("[{}] Up to date", target.name());
-        return Ok(());
-    }
-    target.run(context, cleanup_manager)?;
-    // TODO: check that updates_paths were created?
+    target.run(context, outputs, cleanup_manager, args)?;
     let _ = create_metadata_dir(target.name())?;
     File::create(last_run_path(target)?)?;
     Ok(())
@@ -479,19 +618,26 @@ fn run_target_inner<'a>(
 
 pub fn run_target(
     target: &Target,
-    config: &Config,
-    config_path: &PathBuf,
-    context: &mut Context,
+    context: &Context,
+    outputs: &mut OutputsManager,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
+    args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut to_stop = vec![];
-    let result = run_target_inner(target, config, config_path, context, &mut to_stop, cleanup_manager);
+    let result = run_target_inner(
+        target,
+        context,
+        outputs,
+        &mut to_stop,
+        cleanup_manager.clone(),
+        args,
+    );
     // TODO: use cleanup manager to handle the to_stop stuff?
     // Reverse the order that they were started
     to_stop.reverse();
     for target in to_stop.iter() {
         // TODO: add in errors to result
-        if let Err(e) = stop_target(target, config, config_path) {
+        if let Err(e) = stop_target(target, context, outputs, cleanup_manager.clone()) {
             warn!("Error stopping target <{}>: {}", target.name(), e);
         }
     }
@@ -499,12 +645,12 @@ pub fn run_target(
 }
 
 pub fn start_target_inner<'a>(
-    target: &Target,
-    config: &'a Config,
-    config_path: &PathBuf,
-    context: &mut Context,
-    to_stop: &mut Vec<Target<'a>>,
+    target: &'a Target,
+    context: &'a Context,
+    outputs: &mut OutputsManager,
+    to_stop: &mut Vec<Target>,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
+    args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !target.daemon() {
         warn!(
@@ -518,43 +664,62 @@ pub fn start_target_inner<'a>(
         target
     );
 
-    let resolved_requirements = find_required(target, config)?;
-    for required_target in resolved_requirements.iter() {
+    let resolved_requirements = find_required(target, context)?;
+    for required_target in resolved_requirements.clone().into_iter() {
         if required_target.daemon() {
             debug!(
                 "Starting required target <{}> for target <{}>",
                 required_target.name(),
                 target.name()
             );
-            start_target(required_target, config, config_path, context, cleanup_manager.clone())?;
-            to_stop.push(required_target.clone());
+            start_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
+            to_stop.push(required_target);
         } else {
             debug!(
                 "Running required target <{}> for target <{}>",
                 required_target.name(),
                 target.name()
             );
-            run_target(required_target, config, config_path, context, cleanup_manager.clone())?;
+            run_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
         }
     }
-    target.start(context)
+    target.start(context, outputs, args)
 }
 
 pub fn start_target(
     target: &Target,
-    config: &Config,
-    config_path: &PathBuf,
-    context: &mut Context,
+    context: &Context,
+    outputs: &mut OutputsManager,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
+    args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut to_stop = vec![];
-    let result = start_target_inner(target, config, config_path, context, &mut to_stop, cleanup_manager);
+    let result = start_target_inner(
+        target,
+        context,
+        outputs,
+        &mut to_stop,
+        cleanup_manager.clone(),
+        args,
+    );
     if let Err(_) = result {
         // Reverse the order that they were started
         to_stop.reverse();
         for target in to_stop.iter() {
             // TODO: add in errors to result
-            if let Err(e) = stop_target(target, config, config_path) {
+            if let Err(e) = stop_target(target, context, outputs, cleanup_manager.clone()) {
                 warn!("Error stopping target <{}>: {}", target.name(), e);
             }
         }
@@ -564,8 +729,9 @@ pub fn start_target(
 
 pub fn stop_target(
     target: &Target,
-    _config: &Config,
-    _config_path: &PathBuf,
+    _context: &Context,
+    _outputs: &mut OutputsManager,
+    _cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug!(
         "Stopping target <{}>, with definition <{:?}>",
@@ -617,6 +783,91 @@ pub fn stop_target(
     );
     std::fs::remove_file(&pid_path)?;
     Ok(())
+}
+
+fn build_target_inner<'a>(
+    target: &'a Target,
+    context: &'a Context,
+    outputs: &mut OutputsManager,
+    to_stop: &mut Vec<Target>,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    debug!(
+        "Building target <{}>, with definition <{:?}>",
+        target.name(),
+        target
+    );
+    let resolved_requirements = find_required(target, context)?;
+    for required_target in resolved_requirements.clone().into_iter() {
+        if required_target.daemon() {
+            debug!(
+                "Starting required target <{}> for target <{}>",
+                required_target.name(),
+                target.name()
+            );
+            start_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
+            to_stop.push(required_target);
+        } else {
+            debug!(
+                "Running required target <{}> for target <{}>",
+                required_target.name(),
+                target.name()
+            );
+            run_target(
+                &required_target,
+                context,
+                outputs,
+                cleanup_manager.clone(),
+                vec![],
+            )?;
+        }
+    }
+    if !should_rerun(target, &resolved_requirements, context, outputs)? {
+        debug!(
+            "Skipping target <{}> as it does not need to be run",
+            target.name()
+        );
+        info!("[{}] Up to date", target.name());
+        return Ok(());
+    }
+
+    target.build(context, outputs, cleanup_manager)?;
+    // TODO: check that updates_paths were created?
+    let _ = create_metadata_dir(target.name())?;
+    File::create(last_run_path(target)?)?;
+    Ok(())
+}
+
+pub fn build_target(
+    target: &Target,
+    context: &Context,
+    outputs: &mut OutputsManager,
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut to_stop = vec![];
+    let result = build_target_inner(
+        target,
+        context,
+        outputs,
+        &mut to_stop,
+        cleanup_manager.clone(),
+    );
+    // TODO: use cleanup manager to handle the to_stop stuff?
+    // Reverse the order that they were started
+    to_stop.reverse();
+    for target in to_stop.iter() {
+        // TODO: add in errors to result
+        if let Err(e) = stop_target(target, context, outputs, cleanup_manager.clone()) {
+            warn!("Error stopping target <{}>: {}", target.name(), e);
+        }
+    }
+    result
 }
 
 #[cfg(test)]

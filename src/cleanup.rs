@@ -19,4 +19,3 @@ impl CleanupManager {
         self.cleanups.pop();
     }
 }
-

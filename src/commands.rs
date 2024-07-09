@@ -31,7 +31,10 @@ pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
     }
 }
 
-fn send_signal(pid: nix::unistd::Pid, signal: nix::sys::signal::Signal) -> Result<(), Box<dyn std::error::Error>> {
+fn send_signal(
+    pid: nix::unistd::Pid,
+    signal: nix::sys::signal::Signal,
+) -> Result<(), Box<dyn std::error::Error>> {
     debug!("Sending <{}> to process <{}>", signal, pid);
     match nix::sys::signal::kill(pid, signal) {
         Ok(_) => Ok(()),
@@ -82,8 +85,11 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Err
                     break;
                 }
                 _ => {
-                    debug!("Process <{}> still alive, sleeping", pid);
-                    thread::sleep(Duration::from_secs(1));
+                    let sleep_time = 100;
+                    if start.elapsed().as_millis() % 1000 < (sleep_time as f64 * 1.5) as u128 {
+                        debug!("Process <{}> still alive, sleeping", pid);
+                    }
+                    thread::sleep(Duration::from_millis(sleep_time));
                 }
             }
         }
@@ -95,6 +101,30 @@ pub fn run_command(cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = build_command(cmd)?;
     let status = cmd.status()?;
     if !status.success() {
+        if let Some(code) = status.code() {
+            return Err(Box::from(format!("Command failed with exit code: {}", code)));
+        } else {
+            return Err(Box::from(format!(
+                "Command terminated by a signal"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/*
+pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = build_command(cmd)?;
+    let mut child = cmd.spawn()?;
+    let id = child.id();
+    cleanup_manager.lock().unwrap().push_cleanup(move || {
+        if let Err(e) = stop_process(nix::unistd::Pid::from_raw(id as i32)) {
+            warn!("Error stopping child process: {}", e);
+        }
+    });
+    let status = child.wait()?;
+    cleanup_manager.lock().unwrap().pop_cleanup();
+    if !status.success() {
         return Err(Box::from(format!(
             "Command failed with exit code: {}",
             status.code().unwrap()
@@ -102,26 +132,7 @@ pub fn run_command(cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
-
-// pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<(), Box<dyn std::error::Error>> {
-//     let mut cmd = build_command(cmd)?;
-//     let mut child = cmd.spawn()?;
-//     let id = child.id();
-//     cleanup_manager.lock().unwrap().push_cleanup(move || {
-//         if let Err(e) = stop_process(nix::unistd::Pid::from_raw(id as i32)) {
-//             warn!("Error stopping child process: {}", e);
-//         }
-//     });
-//     let status = child.wait()?;
-//     cleanup_manager.lock().unwrap().pop_cleanup();
-//     if !status.success() {
-//         return Err(Box::from(format!(
-//             "Command failed with exit code: {}",
-//             status.code().unwrap()
-//         )));
-//     }
-//     Ok(())
-// }
+*/
 
 pub fn spawn_command_with_pidfile(
     cmd: &str,
@@ -224,7 +235,11 @@ mod tests {
 
     #[test]
     fn test_send_signal() {
-        send_signal(nix::unistd::Pid::from_raw(std::process::id() as i32), nix::sys::signal::SIGWINCH).unwrap();
+        send_signal(
+            nix::unistd::Pid::from_raw(std::process::id() as i32),
+            nix::sys::signal::SIGWINCH,
+        )
+        .unwrap();
     }
 
     #[test]
