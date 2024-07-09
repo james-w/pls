@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use anyhow::{anyhow, Result};
 use log::debug;
 
 use crate::{
@@ -174,7 +175,7 @@ fn resolve_extends(
     name: FullyQualifiedName,
     command: &ConfigWrapper,
     commands: &HashMap<FullyQualifiedName, ConfigWrapper>,
-) -> Result<Target, String> {
+) -> Result<Target> {
     let base = if let Some(extends) = command.extends() {
         let extends_fully_qualified = if extends.contains(".") {
             let (tag, name) = extends.split_once(".").unwrap();
@@ -192,7 +193,7 @@ fn resolve_extends(
         if let Some(base) = base {
             resolve_extends(extends_fully_qualified, base, commands).map(Some)
         } else {
-            Err(format!(
+            Err(anyhow!(
                 "<{}> extends non-existent <{}>",
                 name, extends
             ))
@@ -319,7 +320,7 @@ impl ConfigWrapper {
 }
 
 impl Context {
-    pub fn from_config(config: &Config, path: String) -> Result<Context, String> {
+    pub fn from_config(config: &Config, path: String) -> Result<Context> {
         let mut context = Context::default();
         context.config_path = path;
         if let Some(ref globals) = config.globals {
@@ -373,7 +374,7 @@ impl Context {
         Ok(context)
     }
 
-    fn resolve_extends(&mut self, commands: &HashMap<FullyQualifiedName, ConfigWrapper>) -> Result<(), String> {
+    fn resolve_extends(&mut self, commands: &HashMap<FullyQualifiedName, ConfigWrapper>) -> Result<()> {
         for (name, command) in commands.iter() {
             self.targets.insert(name.clone(), resolve_extends(name.clone(), command, commands)?);
         }
@@ -385,7 +386,7 @@ impl Context {
         command: &str,
         this_target_name: &FullyQualifiedName,
         outputs: &OutputsManager,
-    ) -> Result<String, String> {
+    ) -> Result<String> {
         self.resolve_substitutions_inner(command, this_target_name, outputs, None, &None)
     }
 
@@ -396,7 +397,7 @@ impl Context {
         outputs: &OutputsManager,
         args: Option<Vec<String>>,
         default_args: &Option<String>,
-    ) -> Result<String, String> {
+    ) -> Result<String> {
         debug!("Resolving variables in <{}> for <{}>", command, this_target_name);
         debug!("{:?}", self.variables);
         let escaped_args_str = if let Some(ref args) = args {
@@ -407,7 +408,7 @@ impl Context {
                 for arg in args {
                     escaped_args.push(
                         escape_string(arg)
-                            .map_err(|e| format!("While escaping argument <{}>: {}", arg, e))?,
+                            .map_err(|e| anyhow!("While escaping argument <{}>: {}", arg, e))?,
                     );
                 }
                 escaped_args.join(" ")
@@ -445,7 +446,7 @@ impl Context {
                                 },
                                 CommandLookupResult::NotFound => None,
                                 CommandLookupResult::Duplicates(duplicates) => {
-                                    return Err(format!("While resolving substution <{{{}.{}}}>: command <{}> is ambiguous, could be <{}>", target_name, variable, target_name, duplicates.join(", ")));
+                                    return Err(anyhow!("While resolving substution <{{{}.{}}}>: command <{}> is ambiguous, could be <{}>", target_name, variable, target_name, duplicates.join(", ")));
                                 }
                             }
                         }
@@ -467,7 +468,7 @@ impl Context {
                         resolved = new_resolved;
                         Ok(())
                     } else {
-                        Err(format!("Variable <{}> not found", variable))
+                        Err(anyhow!("Variable <{}> not found", variable))
                     }
                 })
             });
@@ -490,7 +491,7 @@ impl Context {
         outputs: &OutputsManager,
         args: Vec<String>,
         default_args: &Option<String>,
-    ) -> Result<String, String> {
+    ) -> Result<String> {
         self.resolve_substitutions_inner(command, this_target_name, outputs, Some(args), default_args)
     }
 
@@ -624,7 +625,7 @@ mod tests {
             &OutputsManager::default(),
         );
         assert!(resolved.is_err());
-        assert_eq!(resolved.unwrap_err(), "Variable <globals.key> not found");
+        assert_eq!(resolved.unwrap_err().to_string(), "Variable <globals.key> not found");
     }
 
     #[test]

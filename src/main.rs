@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use log::{debug, error, warn, Log};
 
@@ -28,24 +29,24 @@ fn do_run(
     context: Context,
     config_path: &PathBuf,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let mut outputs = OutputsManager::default();
     match context.get_command(cmd.name.as_str()) {
         CommandLookupResult::Found(target) => {
             run_target(&target.clone(), &context, &mut outputs, cleanup_manager, cmd.args.clone())
         },
         CommandLookupResult::NotFound => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> not found in config file <{}>",
                 cmd.name,
                 config_path.display()
-            )))
+            ))
         },
         CommandLookupResult::Duplicates(duplicates) => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                 cmd.name, duplicates.join(", ")
-            )))
+            ))
         },
     }
 }
@@ -56,7 +57,7 @@ fn do_start(
     context: Context,
     config_path: &PathBuf,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let mut outputs = OutputsManager::default();
     match context.get_command(cmd.name.as_str()) {
         CommandLookupResult::Found(target) => {
@@ -69,17 +70,17 @@ fn do_start(
             )
         },
         CommandLookupResult::NotFound => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> not found in config file <{}>",
                 cmd.name,
                 config_path.display()
-            )))
+            ))
         },
         CommandLookupResult::Duplicates(duplicates) => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                 cmd.name, duplicates.join(", ")
-            )))
+            ))
         },
     }
 }
@@ -90,24 +91,24 @@ fn do_stop(
     context: Context,
     config_path: &PathBuf,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let mut outputs = OutputsManager::default();
     match context.get_command(cmd.target.as_str()) {
         CommandLookupResult::Found(target) => {
             stop_target(&target, &context, &mut outputs, cleanup_manager)
         },
         CommandLookupResult::NotFound => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> not found in config file <{}>",
                 cmd.target,
                 config_path.display()
-            )))
+            ))
         },
         CommandLookupResult::Duplicates(duplicates) => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                 cmd.target, duplicates.join(", ")
-            )))
+            ))
         },
     }
 }
@@ -118,24 +119,24 @@ fn do_build(
     context: Context,
     config_path: &PathBuf,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let mut outputs = OutputsManager::default();
     match context.get_command(cmd.artifact.as_str()) {
         CommandLookupResult::Found(target) => {
             build_target(&target.clone(), &context, &mut outputs, cleanup_manager)
         },
         CommandLookupResult::NotFound => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> not found in config file <{}>",
                 cmd.artifact,
                 config_path.display()
-            )))
+            ))
         },
         CommandLookupResult::Duplicates(duplicates) => {
-            Err(Box::from(format!(
+            Err(anyhow!(
                 "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                 cmd.artifact, duplicates.join(", ")
-            )))
+            ))
         },
     }
 }
@@ -143,7 +144,7 @@ fn do_build(
 fn run(
     args: Args,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let config_path =
         find_config_file().expect("Could not find config file in this directory or any parent");
     let config = Config::load_and_validate(&config_path)?;

@@ -2,10 +2,11 @@ use std::fs::File;
 use std::thread;
 use std::time::Duration;
 
+use anyhow::{anyhow, Result};
 use log::debug;
 use nix::errno::Errno;
 
-pub fn build_command(command: &str) -> Result<std::process::Command, Box<dyn std::error::Error>> {
+pub fn build_command(command: &str) -> Result<std::process::Command> {
     let mut split = shlex::Shlex::new(command);
     debug!(
         "Split command <{}> into parts: <{}>",
@@ -20,7 +21,7 @@ pub fn build_command(command: &str) -> Result<std::process::Command, Box<dyn std
             cmd
         }))
     } else {
-        Err(Box::from(format!("Command <{}> is empty", command)))
+        Err(anyhow!("Command <{}> is empty", command))
     }
 }
 
@@ -34,31 +35,31 @@ pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
 fn send_signal(
     pid: nix::unistd::Pid,
     signal: nix::sys::signal::Signal,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     debug!("Sending <{}> to process <{}>", signal, pid);
     match nix::sys::signal::kill(pid, signal) {
         Ok(_) => Ok(()),
-        Err(e) => Err(Box::from(e)),
+        Err(e) => Err(anyhow!("Failed to send signal, got errno: {}", e)),
     }
 }
 
-pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Error>> {
+pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
     let mut signal = nix::sys::signal::SIGTERM;
     let start = std::time::Instant::now();
     send_signal(pid, signal).map_err(|e| {
-        Box::<dyn std::error::Error>::from(format!(
+        anyhow!(
             "Error sending kill signal to process <{}>: {}",
             pid, e
-        ))
+        )
     })?;
     while is_process_alive(pid) {
         if start.elapsed() > Duration::from_secs(10) {
             signal = nix::sys::signal::SIGKILL;
             send_signal(pid, signal).map_err(|e| {
-                Box::<dyn std::error::Error>::from(format!(
+                anyhow!(
                     "Error sending kill signal to process <{}>: {}",
                     pid, e
-                ))
+                )
             })?;
         }
         let status = nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG))
@@ -73,10 +74,10 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Err
                 |x| Ok(Some(x)),
             )
             .map_err(|e| {
-                Box::<dyn std::error::Error>::from(format!(
+                anyhow!(
                     "Error waiting for process {}: {}",
                     pid, e
-                ))
+                )
             })?;
         if let Some(status) = status {
             match status {
@@ -97,16 +98,16 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-pub fn run_command(cmd: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_command(cmd: &str) -> Result<()> {
     let mut cmd = build_command(cmd)?;
     let status = cmd.status()?;
     if !status.success() {
         if let Some(code) = status.code() {
-            return Err(Box::from(format!("Command failed with exit code: {}", code)));
+            return Err(anyhow!("Command failed with exit code: {}", code));
         } else {
-            return Err(Box::from(format!(
+            return Err(anyhow!(
                 "Command terminated by a signal"
-            )));
+            ));
         }
     }
     Ok(())
@@ -139,7 +140,7 @@ pub fn spawn_command_with_pidfile(
     pid_path: &std::path::PathBuf,
     log_path: &std::path::PathBuf,
     on_start: impl Fn() -> (),
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     if pid_path.exists() {
         let pid_str = std::fs::read_to_string(&pid_path)?;
         debug!(
@@ -149,10 +150,10 @@ pub fn spawn_command_with_pidfile(
         );
         let pid = pid_str.trim().parse::<i32>()?;
         if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
-            return Err(Box::from(format!(
+            return Err(anyhow!(
                 "Daemon for is already running with pid <{}>",
                 pid
-            )));
+            ));
         }
         debug!("Process with pid <{}> is not running, continuing", pid);
     }

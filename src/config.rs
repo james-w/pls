@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use anyhow::Result;
 use log::debug;
 use serde::Deserialize;
 
@@ -107,11 +108,11 @@ pub fn find_config_file() -> Option<std::path::PathBuf> {
 }
 
 impl Config {
-    pub fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn validate(&self) -> Result<()> {
         Ok(())
     }
 
-    pub fn load_and_validate(config_path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load_and_validate(config_path: &PathBuf) -> Result<Self> {
         let config_str = std::fs::read_to_string(config_path)?;
         let config: Config = toml::from_str(config_str.as_str())?;
         config.validate()?;
