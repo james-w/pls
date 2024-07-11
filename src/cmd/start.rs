@@ -25,12 +25,12 @@ impl Execute for StartCommand {
             CommandLookupResult::Found(target) => {
                 let builder = target.as_startable();
                 if let Some(builder) = builder {
-                    return builder.start(&context, &mut outputs, cleanup_manager, self.args.clone());
+                    builder.start(&context, &mut outputs, cleanup_manager, self.args.clone())
                 } else {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "Target <{}> is not startable",
                         self.name
-                    ));
+                    ))
                 }
             },
             CommandLookupResult::NotFound => {

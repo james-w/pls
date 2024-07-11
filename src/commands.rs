@@ -26,10 +26,7 @@ pub fn build_command(command: &str) -> Result<std::process::Command> {
 }
 
 pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
-    match nix::sys::signal::kill(pid, None) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    nix::sys::signal::kill(pid, None).is_ok()
 }
 
 fn send_signal(pid: nix::unistd::Pid, signal: nix::sys::signal::Signal) -> Result<()> {
@@ -55,9 +52,9 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
             .map_or_else(
                 |err| {
                     if err == Errno::ECHILD {
-                        return Ok(None);
+                        Ok(None)
                     } else {
-                        return Err(err);
+                        Err(err)
                     }
                 },
                 |x| Ok(Some(x)),
@@ -121,10 +118,10 @@ pub fn spawn_command_with_pidfile(
     cmd: &str,
     pid_path: &std::path::PathBuf,
     log_path: &std::path::PathBuf,
-    on_start: impl Fn() -> (),
+    on_start: impl Fn(),
 ) -> Result<()> {
     if pid_path.exists() {
-        let pid_str = std::fs::read_to_string(&pid_path)?;
+        let pid_str = std::fs::read_to_string(pid_path)?;
         debug!(
             "Found pid file at <{}>, with contents <{}>, checking if it is alive",
             pid_path.display(),
@@ -153,11 +150,11 @@ pub fn spawn_command_with_pidfile(
         child.id(),
         pid_path.display()
     );
-    std::fs::write(&pid_path, child.id().to_string())?;
+    std::fs::write(pid_path, child.id().to_string())?;
     Ok(())
 }
 
-pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn() -> ()) -> Result<()> {
+pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> Result<()> {
     let mut pid_str = std::fs::read_to_string(pid_path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => anyhow!("Task not running"),
         _ => anyhow!(
@@ -181,7 +178,7 @@ pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn() -> (
         debug!("Process with pid <{}> is no longer alive", pid,);
     }
     debug!("Removing pid file at <{}>", pid_path.display());
-    std::fs::remove_file(&pid_path)?;
+    std::fs::remove_file(pid_path)?;
     Ok(())
 }
 

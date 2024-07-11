@@ -5,7 +5,7 @@ pub(crate) fn _default_to<'a, T: Default + Clone, U>(
 ) -> T {
     prefer
         .clone()
-        .or(base.map(f).map(|t| t.clone()))
+        .or(base.map(f).cloned())
         .unwrap_or_default()
 }
 
@@ -17,7 +17,7 @@ pub(crate) fn _default_to_with_default<T: Default + Clone, U>(
 ) -> T {
     prefer
         .clone()
-        .or(base.map(f).map(|t| t.clone()))
+        .or(base.map(f))
         .unwrap_or(default)
 }
 
@@ -26,7 +26,7 @@ pub(crate) fn _default_optional<'a, T: Clone, U>(
     base: Option<U>,
     f: fn(U) -> &'a Option<T>,
 ) -> Option<T> {
-    prefer.clone().or(base.map(f).map(|b| b.clone()).flatten())
+    prefer.clone().or(base.map(f).cloned().flatten())
 }
 
 macro_rules! default_to {

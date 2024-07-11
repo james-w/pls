@@ -15,7 +15,7 @@ impl OutputsManager {
             "Setting <{}> output of target <{}> to <{}>",
             key, target_name, value
         );
-        let target_outputs = self.outputs.entry(target_name).or_insert(HashMap::new());
+        let target_outputs = self.outputs.entry(target_name).or_default();
         target_outputs.insert(key.to_string(), value.to_string());
     }
 

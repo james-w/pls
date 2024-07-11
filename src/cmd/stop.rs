@@ -22,12 +22,12 @@ impl Execute for StopCommand {
             CommandLookupResult::Found(target) => {
                 let builder = target.as_startable();
                 if let Some(builder) = builder {
-                    return builder.stop(&context, &mut outputs, cleanup_manager);
+                    builder.stop(&context, &mut outputs, cleanup_manager)
                 } else {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "Target <{}> is not stopable",
                         self.target
-                    ));
+                    ))
                 }
             },
             CommandLookupResult::NotFound => {

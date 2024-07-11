@@ -27,10 +27,10 @@ impl Execute for RunCommand {
                 if let Some(runner) = runner {
                     runner.run(&context, &mut outputs, cleanup_manager, self.args.clone())
                 } else {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "Target <{}> is not runnable",
                         self.name
-                    ));
+                    ))
                 }
             },
             CommandLookupResult::NotFound => {

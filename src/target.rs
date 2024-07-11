@@ -236,7 +236,7 @@ impl Runnable for Artifact {
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
-        if args.len() > 0 {
+        if !args.is_empty() {
             return Err(anyhow!("Artifacts do not accept arguments"));
         }
         let mut to_stop: Vec<&Target> = vec![];
@@ -664,7 +664,7 @@ fn update_times_of_glob(glob_str: &str) -> Result<Vec<LastRun>> {
 
 fn update_times_of_glob_ignoring_missing(glob_str: &str) -> Result<Vec<LastRun>> {
     Ok(glob(glob_str)?
-        .map(|entry| match entry {
+        .filter_map(|entry| match entry {
             Ok(path) => std::fs::metadata(&path).map_or_else(
                 |_| {
                     debug!("File <{}> does not exist", path.display());
@@ -677,7 +677,6 @@ fn update_times_of_glob_ignoring_missing(glob_str: &str) -> Result<Vec<LastRun>>
                 None
             }
         })
-        .filter_map(|x| x)
         .collect())
 }
 

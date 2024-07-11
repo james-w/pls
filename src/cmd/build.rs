@@ -22,12 +22,12 @@ impl Execute for BuildCommand {
             CommandLookupResult::Found(target) => {
                 let builder = target.as_buildable();
                 if let Some(builder) = builder {
-                    return builder.build(&context, &mut outputs, cleanup_manager);
+                    builder.build(&context, &mut outputs, cleanup_manager)
                 } else {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "Target <{}> is not buildable, use the run command instead",
                         self.artifact
-                    ));
+                    ))
                 }
             },
             CommandLookupResult::NotFound => {

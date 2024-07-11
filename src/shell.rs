@@ -41,11 +41,11 @@ pub fn escape_and_prepend(
             &Some(
                 context
                     .resolve_substitutions(v.as_ref(), target_name, outputs)
-                    .map_err(|e| Box::<dyn std::error::Error>::from(e))?
+                    .map_err(Box::<dyn std::error::Error>::from)?
                     .as_str(),
             ),
         )
-        .map_err(|e| Box::from(e))
+        .map_err(Box::from)
     } else {
         Ok("".to_string())
     }
@@ -61,14 +61,14 @@ pub fn escape_and_prepend_vec(
     if let Some(v) = value {
         let resolved = v
             .iter()
-            .map(|ref e| {
+            .map(|e| {
                 context
                     .resolve_substitutions(e, target_name, outputs)
-                    .map_err(|e| Box::from(e))
+                    .map_err(Box::from)
             })
             .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
         prepend_arguments_if_set(arg, &Some(resolved.iter().map(|e| e.as_str()).collect()))
-            .map_err(|e| Box::from(e))
+            .map_err(Box::from)
     } else {
         Ok("".to_string())
     }

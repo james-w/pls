@@ -140,7 +140,7 @@ impl ContainerCommand {
             .as_ref()
             .map(|n| resolve_target_names_in(n, name_map))
             .transpose()?;
-        new.create_network = self.create_network.clone();
+        new.create_network = self.create_network;
         new.default_args = self
             .default_args
             .as_ref()

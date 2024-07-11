@@ -26,12 +26,12 @@ enum Variable {
 
 impl Variable {
     pub fn from_string(input: &str) -> Result<Self> {
-        if !input.contains(".") {
+        if !input.contains('.') {
             Ok(Self::Simple(input.to_string()))
         } else if input.starts_with("globals.") {
             Ok(Self::Global(input["globals.".len()..].to_string()))
         } else {
-            let parts = input.split(".").collect::<Vec<_>>();
+            let parts = input.split('.').collect::<Vec<_>>();
             if parts.len() > 2 && parts[parts.len() - 2] == "output" {
                 Ok(Self::Output(
                     parts[0..parts.len() - 2].join(".").to_string(),
@@ -58,7 +58,7 @@ pub struct Context {
 }
 
 fn get_lookup_name(name: String, default_tag: String) -> FullyQualifiedName {
-    if let Some((tag, name)) = name.split_once(".") {
+    if let Some((tag, name)) = name.split_once('.') {
         FullyQualifiedName {
             tag: tag.to_string(),
             name: name.to_string(),
@@ -133,8 +133,8 @@ where
     variables
         .map(|r| {
             Ok((
-                resolve_target_names_in(&r.0, name_map)?,
-                resolve_target_names_in(&r.1, name_map)?,
+                resolve_target_names_in(r.0, name_map)?,
+                resolve_target_names_in(r.1, name_map)?,
             ))
         })
         .collect()
@@ -173,7 +173,7 @@ pub fn resolve_target_names_in(
             }
             None => return Err(anyhow!("Non-existent reference <{}>", target_name)),
         };
-        let resolved = format!("{}.{}", matched.to_string(), key);
+        let resolved = format!("{}.{}", matched, key);
         debug!("Resolved <{}> to <{}>", variable, resolved);
         output = output.replace(
             format!("{{{}}}", variable).as_str(),
@@ -358,11 +358,11 @@ fn resolve_extends(
             ConfigWrapper::ContainerBuild(command) => {
                 let base = base
                     .as_ref()
-                    .map::<Result<_>, _>(|b| Ok(b.artifact()?.container_image()?))
+                    .map::<Result<_>, _>(|b| b.artifact()?.container_image())
                     .transpose()?;
-                return Ok(Target::Artifact(Artifact::ContainerImage(
+                Ok(Target::Artifact(Artifact::ContainerImage(
                     ContainerArtifact::from_config(target_info, artifact_info, command, base),
-                )));
+                )))
             }
             _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
         }
@@ -378,28 +378,28 @@ fn resolve_extends(
             ConfigWrapper::Exec(command) => {
                 let base = base
                     .as_ref()
-                    .map::<Result<_>, _>(|b| Ok(b.command()?.exec()?))
+                    .map::<Result<_>, _>(|b| b.command()?.exec())
                     .transpose()?;
-                return Ok(Target::Command(Command::Exec(ExecCommand::from_config(
+                Ok(Target::Command(Command::Exec(ExecCommand::from_config(
                     target_info,
                     command_info,
                     command,
                     base,
-                ))));
+                ))))
             }
             ConfigWrapper::Container(command) => {
                 let base = base
                     .as_ref()
-                    .map::<Result<_>, _>(|b| Ok(b.command()?.container()?))
+                    .map::<Result<_>, _>(|b| b.command()?.container())
                     .transpose()?;
-                return Ok(Target::Command(Command::Container(
+                Ok(Target::Command(Command::Container(
                     ContainerCommand::from_config(
                         target_info,
                         command_info,
                         &command.with_resolved_targets(name_map)?,
                         base,
                     ),
-                )));
+                )))
             }
             _ => panic!("Unknown command type, got <{}>", command.type_tag()),
         }
@@ -595,8 +595,8 @@ impl Context {
         let mut resolved = command.to_string();
         let mut index = 0;
         while index < command.len() {
-            let res = command[index..].find("{").and_then(|found| {
-                command[index + found..].find("}").map(|end_index| {
+            let res = command[index..].find('{').and_then(|found| {
+                command[index + found..].find('}').map(|end_index| {
                     let variable = &command[index + found + 1..index + found + end_index];
                     debug!("Found variable <{}>", variable);
                     index += found + end_index + 1;
@@ -662,8 +662,8 @@ impl Context {
     }
 
     pub fn get_target(&self, name: &str) -> CommandLookupResult {
-        if name.contains(".") {
-            let (tag, name) = name.split_once(".").unwrap();
+        if name.contains('.') {
+            let (tag, name) = name.split_once('.').unwrap();
             let fully_qualified_name = FullyQualifiedName {
                 tag: tag.to_string(),
                 name: name.to_string(),
