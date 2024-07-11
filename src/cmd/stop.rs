@@ -5,8 +5,9 @@ use clap::Parser;
 
 use crate::cleanup::CleanupManager;
 use crate::cmd::execute::Execute;
-use crate::context::{CommandLookupResult, Context, OutputsManager};
-use crate::runner::stop_target;
+use crate::context::{CommandLookupResult, Context};
+use crate::outputs::OutputsManager;
+use crate::target::Targetable;
 
 #[derive(Parser, Debug)]
 pub struct StopCommand {
@@ -15,15 +16,19 @@ pub struct StopCommand {
 }
 
 impl Execute for StopCommand {
-    fn execute(
-        &self,
-        context: Context,
-        cleanup_manager: Arc<Mutex<CleanupManager>>,
-    ) -> Result<()> {
+    fn execute(&self, context: Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
         let mut outputs = OutputsManager::default();
-        match context.get_command(self.target.as_str()) {
+        match context.get_target(self.target.as_str()) {
             CommandLookupResult::Found(target) => {
-                stop_target(&target, &context, &mut outputs, cleanup_manager)
+                let builder = target.as_startable();
+                if let Some(builder) = builder {
+                    return builder.stop(&context, &mut outputs, cleanup_manager);
+                } else {
+                    return Err(anyhow!(
+                        "Target <{}> is not stopable",
+                        self.target
+                    ));
+                }
             },
             CommandLookupResult::NotFound => {
                 Err(anyhow!(
@@ -41,5 +46,3 @@ impl Execute for StopCommand {
         }
     }
 }
-
-

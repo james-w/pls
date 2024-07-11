@@ -19,10 +19,10 @@
 * :soon: Descriptions
 * :soon: Groups/tags
 
-* :arrow_forward: Define artifacts to build, that are only rebuilt if needed
-* :arrow_forward: Timestamp comparisons on files
-* :arrow_forward: Timestamp comparison of last runtime when no file to check
-* :arrow_forward: A way to force the build to happen
+* :heavy_check_mark: Define artifacts to build, that are only rebuilt if needed
+* :heavy_check_mark: Timestamp comparisons on files
+* :heavy_check_mark: Timestamp comparison of last runtime when no file to check
+* :heavy_check_mark: A way to force the build to happen
 
 ### Watcher
 

@@ -1,15 +1,51 @@
 use std::collections::HashMap;
-use std::fmt;
 
 use anyhow::{anyhow, Result};
 use log::debug;
 
 use crate::{
     config::{
-        Config, ContainerCommand as ConfigContainerCommand, ExecCommand as ConfigExecCommand, ContainerBuild as ConfigContainerBuild,
+        ArtifactInfo as ConfigArtifactInfo, CommandInfo as ConfigCommandInfo, Config,
+        ContainerBuild as ConfigContainerBuild, ContainerCommand as ConfigContainerCommand,
+        ExecCommand as ConfigExecCommand, TargetInfo as ConfigTargetInfo,
     },
+    default::default_to,
+    name::FullyQualifiedName,
+    outputs::OutputsManager,
     shell::escape_string,
+    target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
+    targets::{ContainerArtifact, ContainerCommand, ExecCommand},
 };
+
+enum Variable {
+    Simple(String),
+    Global(String),
+    Ref(String, String),
+    Output(String, String),
+}
+
+impl Variable {
+    pub fn from_string(input: &str) -> Result<Self> {
+        if !input.contains(".") {
+            Ok(Self::Simple(input.to_string()))
+        } else if input.starts_with("globals.") {
+            Ok(Self::Global(input["globals.".len()..].to_string()))
+        } else {
+            let parts = input.split(".").collect::<Vec<_>>();
+            if parts.len() > 2 && parts[parts.len() - 2] == "output" {
+                Ok(Self::Output(
+                    parts[0..parts.len() - 2].join(".").to_string(),
+                    parts[parts.len() - 1].to_string(),
+                ))
+            } else {
+                Ok(Self::Ref(
+                    parts[0..parts.len() - 1].join(".").to_string(),
+                    parts[parts.len() - 1].to_string(),
+                ))
+            }
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Context {
@@ -21,262 +57,351 @@ pub struct Context {
     pub config_path: String,
 }
 
-#[derive(Debug, Default)]
-pub struct OutputsManager {
-    outputs: HashMap<FullyQualifiedName, HashMap<String, String>>,
+fn get_lookup_name(name: String, default_tag: String) -> FullyQualifiedName {
+    if let Some((tag, name)) = name.split_once(".") {
+        FullyQualifiedName {
+            tag: tag.to_string(),
+            name: name.to_string(),
+        }
+    } else {
+        FullyQualifiedName {
+            tag: default_tag,
+            name,
+        }
+    }
 }
 
-impl OutputsManager {
-    // TODO: store the outputs for re-runs
-    pub fn store_output(&mut self, target_name: FullyQualifiedName, key: &str, value: &str) {
-        debug!(
-            "Setting <{}> output of target <{}> to <{}>",
-            key, target_name, value
+fn resolve_requires<'a, I>(
+    requires: I,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+) -> Result<Vec<FullyQualifiedName>>
+where
+    I: Iterator<Item = &'a String>,
+{
+    requires
+        .map(|r| {
+            let candidates = name_map.get(r);
+            match candidates {
+                Some(candidates) => {
+                    if candidates.len() > 1 {
+                        Err(anyhow!(
+                            "Ambiguous reference <{}>, could be <{}>",
+                            r,
+                            candidates
+                                .iter()
+                                .map(|c| c.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ))
+                    } else {
+                        Ok(candidates.first().unwrap().clone())
+                    }
+                }
+                None => Err(anyhow!("Non-existent reference <{}>", r)),
+            }
+        })
+        .collect()
+}
+
+fn extract_variables(input: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut start = None;
+
+    for (i, c) in input.chars().enumerate() {
+        match c {
+            '{' => start = Some(i + 1),
+            '}' => {
+                if let Some(s) = start {
+                    results.push(input[s..i].to_string());
+                    start = None;
+                }
+            }
+            _ => (),
+        }
+    }
+
+    results
+}
+
+fn resolve_variables<'a, I>(
+    variables: I,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+) -> Result<HashMap<String, String>>
+where
+    I: Iterator<Item = (&'a String, &'a String)>,
+{
+    variables
+        .map(|r| {
+            Ok((
+                resolve_target_names_in(&r.0, name_map)?,
+                resolve_target_names_in(&r.1, name_map)?,
+            ))
+        })
+        .collect()
+}
+
+/// Resolve {foo.bar} to {command.exec.foo.bar} or similar
+pub fn resolve_target_names_in(
+    input: &str,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+) -> Result<String> {
+    let mut output = input.to_string();
+    for variable in extract_variables(input) {
+        let var = Variable::from_string(variable.as_str())?;
+        let (target_name, key) = match var {
+            Variable::Simple(_) => continue,
+            Variable::Global(_) => continue,
+            Variable::Ref(target_name, key) => (target_name, key),
+            Variable::Output(target_name, key) => (target_name, format!("output.{}", key)),
+        };
+        let candidates = name_map.get(&target_name.to_string());
+        let matched = match candidates {
+            Some(candidates) => {
+                if candidates.len() > 1 {
+                    return Err(anyhow!(
+                        "Ambiguous reference <{}>, could be <{}>",
+                        target_name,
+                        candidates
+                            .iter()
+                            .map(|c| c.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                } else {
+                    candidates.first().unwrap()
+                }
+            }
+            None => return Err(anyhow!("Non-existent reference <{}>", target_name)),
+        };
+        let resolved = format!("{}.{}", matched.to_string(), key);
+        debug!("Resolved <{}> to <{}>", variable, resolved);
+        output = output.replace(
+            format!("{{{}}}", variable).as_str(),
+            format!("{{{}}}", resolved.as_str()).as_str(),
         );
-        let target_outputs = self.outputs.entry(target_name).or_insert(HashMap::new());
-        target_outputs.insert(key.to_string(), value.to_string());
+    }
+    Ok(output)
+}
+
+pub fn resolve_target_names_in_map(
+    input: &HashMap<String, String>,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+) -> Result<HashMap<String, String>> {
+    input
+        .iter()
+        .map(|(k, v)| {
+            Ok((
+                resolve_target_names_in(k, name_map)?,
+                resolve_target_names_in(v, name_map)?,
+            ))
+        })
+        .collect()
+}
+
+pub fn resolve_target_names_in_vec(
+    input: &Vec<String>,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+) -> Result<Vec<String>> {
+    input
+        .iter()
+        .map(|v| resolve_target_names_in(v, name_map))
+        .collect()
+}
+
+fn target_info_from_config(
+    name: FullyQualifiedName,
+    config: &ConfigTargetInfo,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    base: Option<&TargetInfo>,
+) -> Result<TargetInfo> {
+    let mut requires = base
+        .as_ref()
+        .map(|b| b.requires.clone())
+        .unwrap_or_default();
+    let others = config
+        .requires
+        .as_ref()
+        .map(|rs| {
+            resolve_requires(rs.iter(), name_map)
+                .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))
+        })
+        .transpose()?;
+    if let Some(others) = others {
+        requires.extend(others);
+    }
+    let mut variables = base
+        .as_ref()
+        .map(|b| b.variables.clone())
+        .unwrap_or_default();
+    let other_variables = config
+        .variables
+        .as_ref()
+        .map(|vs| {
+            resolve_variables(vs.iter(), name_map)
+                .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))
+        })
+        .transpose()?;
+    if let Some(other_variables) = other_variables {
+        variables.extend(other_variables);
+    }
+    Ok(TargetInfo {
+        name,
+        requires,
+        variables,
+    })
+}
+
+fn command_info_from_config(
+    _name: FullyQualifiedName,
+    config: &ConfigCommandInfo,
+    base: Option<&CommandInfo>,
+) -> CommandInfo {
+    CommandInfo {
+        daemon: default_to!(config, base, daemon, false),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FullyQualifiedName {
-    pub tag: String,
-    pub name: String,
-}
-
-impl fmt::Display for FullyQualifiedName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.tag, self.name)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecCommand {
-    pub name: FullyQualifiedName,
-    pub command: String,
-    pub daemon: bool,
-    pub requires: Vec<String>,
-    pub variables: HashMap<String, String>,
-    pub default_args: Option<String>,
-}
-
-fn default_to<'a, T: Default + Clone, U>(prefer: &Option<T>, base: Option<U>, f: fn (U) -> &'a T) -> T {
-    prefer.clone().or(base.map(f).map(|t| t.clone())).unwrap_or_default()
-}
-
-fn default_to_with_default<T: Default + Clone, U>(prefer: Option<T>, base: Option<U>, f: fn (U) -> T, default: T) -> T {
-    prefer.clone().or(base.map(f).map(|t| t.clone())).unwrap_or(default)
-}
-
-fn default_optional<'a, T: Clone, U>(prefer: &Option<T>, base: Option<U>, f: fn (U) -> &'a Option<T>) -> Option<T> {
-    prefer.clone().or(base.map(f).map(|b| b.clone()).flatten())
-}
-
-macro_rules! default_to {
-    ($prefer:expr, $base:expr, $f:ident) => {
-        default_to(&$prefer.$f, $base, |b| &b.$f)
+fn artifact_info_from_config(
+    name: FullyQualifiedName,
+    config: &ConfigArtifactInfo,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    base: Option<&ArtifactInfo>,
+) -> Result<ArtifactInfo> {
+    let updates_paths = base
+        .as_ref()
+        .map(|b| b.updates_paths.clone())
+        .unwrap_or_default();
+    let others = config
+        .updates_paths
+        .as_ref()
+        .map(|rs| {
+            resolve_target_names_in_vec(rs, name_map)
+                .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))
+        })
+        .transpose()?;
+    let updates_paths = match (updates_paths, others) {
+        (res @ Some(_), None) => res,
+        (None, res @ Some(_)) => res,
+        (Some(mut a), Some(b)) => {
+            a.extend(b);
+            Some(a)
+        }
+        _ => None,
     };
-    ($prefer:expr, $base:expr, $f:ident, $def:expr) => {
-        default_to_with_default($prefer.$f, $base, |b| b.$f, $def)
+    let if_files_changed = base
+        .as_ref()
+        .map(|b| b.if_files_changed.clone())
+        .unwrap_or_default();
+    let other_changed = config
+        .if_files_changed
+        .as_ref()
+        .map(|rs| {
+            resolve_target_names_in_vec(rs, name_map)
+                .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))
+        })
+        .transpose()?;
+    let if_files_changed = match (if_files_changed, other_changed) {
+        (res @ Some(_), None) => res,
+        (None, res @ Some(_)) => res,
+        (Some(mut a), Some(b)) => {
+            a.extend(b);
+            Some(a)
+        }
+        _ => None,
     };
-}
-
-macro_rules! default_optional {
-    ($prefer:expr, $base:expr, $f:ident) => {
-        default_optional(&$prefer.$f, $base, |b| &b.$f)
-    };
-}
-
-impl ExecCommand {
-    pub fn from_config(name: FullyQualifiedName, defn: &ConfigExecCommand, base: Option<&ExecCommand>) -> Self {
-        ExecCommand {
-            name,
-            command: default_to!(defn, base, command),
-            daemon: default_to!(defn, base, daemon, false),
-            requires: default_to!(defn, base, requires),
-            variables: default_to!(defn, base, variables),
-            default_args: default_optional!(defn, base, default_args),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ContainerCommand {
-    pub name: FullyQualifiedName,
-    pub image: String,
-    pub daemon: bool,
-    pub env: Vec<String>,
-    pub requires: Vec<String>,
-    pub variables: HashMap<String, String>,
-    pub command: Option<String>,
-    pub mount: HashMap<String, String>,
-    pub workdir: Option<String>,
-    pub network: Option<String>,
-    pub create_network: bool,
-    pub default_args: Option<String>,
-}
-
-impl ContainerCommand {
-    pub fn from_config(
-        name: FullyQualifiedName,
-        defn: &ConfigContainerCommand,
-        base: Option<&ContainerCommand>,
-    ) -> Self {
-        let mut env = vec![];
-        if let Some(base) = base {
-            env.extend(base.env.clone());
-        }
-        env.extend(defn.env.clone().unwrap_or_default());
-        ContainerCommand {
-            name,
-            image: default_to!(defn, base, image),
-            daemon: default_to!(defn, base, daemon, false),
-            env,
-            requires: default_to!(defn, base, requires),
-            variables: default_to!(defn, base, variables),
-            command: default_optional!(defn, base, command),
-            mount: default_to!(defn, base, mount),
-            workdir: default_optional!(defn, base, workdir),
-            network: default_optional!(defn, base, network),
-            create_network: default_to!(defn, base, create_network, false),
-            default_args: default_optional!(defn, base, default_args),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ContainerBuild {
-    pub name: FullyQualifiedName,
-    pub context: String,
-    pub tag: String,
-    pub requires: Vec<String>,
-    pub variables: HashMap<String, String>,
-    pub if_files_changed: Option<Vec<String>>,
-}
-
-impl ContainerBuild {
-    pub fn from_config(
-        name: FullyQualifiedName,
-        defn: &ConfigContainerBuild,
-        base: Option<&ContainerBuild>,
-    ) -> Self {
-        ContainerBuild {
-            name,
-            context: default_to!(defn, base, context),
-            tag: default_to!(defn, base, tag),
-            requires: default_to!(defn, base, requires),
-            variables: default_to!(defn, base, variables),
-            if_files_changed: default_optional!(defn, base, if_files_changed),
-        }
-    }
+    Ok(ArtifactInfo {
+        updates_paths,
+        if_files_changed,
+    })
 }
 
 fn resolve_extends(
     name: FullyQualifiedName,
     command: &ConfigWrapper,
     commands: &HashMap<FullyQualifiedName, ConfigWrapper>,
+    name_map: &HashMap<String, Vec<FullyQualifiedName>>,
 ) -> Result<Target> {
     let base = if let Some(extends) = command.extends() {
-        let extends_fully_qualified = if extends.contains(".") {
-            let (tag, name) = extends.split_once(".").unwrap();
-            FullyQualifiedName {
-                tag: tag.to_string(),
-                name: name.to_string(),
-            }
-        } else {
-            FullyQualifiedName {
-                tag: command.type_tag().to_string(),
-                name: extends.clone(),
-            }
-        };
+        let extends_fully_qualified =
+            get_lookup_name(extends.clone(), command.type_tag().to_string());
         let base = commands.get(&extends_fully_qualified);
         if let Some(base) = base {
-            resolve_extends(extends_fully_qualified, base, commands).map(Some)
+            resolve_extends(extends_fully_qualified, base, commands, name_map).map(Some)
         } else {
             Err(anyhow!(
                 "<{}> extends non-existent <{}>",
-                name, extends
+                name,
+                extends_fully_qualified
             ))
         }
     } else {
         Ok(None)
-    };
-    base.map(|base| command.to_context(name, base.as_ref()))
-}
-
-#[derive(Debug, Clone)]
-pub enum Target {
-    Exec(ExecCommand),
-    Container(ContainerCommand),
-    ContainerBuild(ContainerBuild),
-}
-
-impl Target {
-    pub fn fully_qualified_name(&self) -> &FullyQualifiedName {
-        match self {
-            Self::Exec(command) => &command.name,
-            Self::Container(command) => &command.name,
-            Self::ContainerBuild(command) => &command.name,
+    }?;
+    let target_info = target_info_from_config(
+        name.clone(),
+        command.target_info(),
+        name_map,
+        base.as_ref().map(|b| b.target_info()),
+    )?;
+    if command.is_artifact() {
+        let artifact_info = artifact_info_from_config(
+            name,
+            command
+                .artifact_info()
+                .expect("{} doesn't have artifact_info"),
+            name_map,
+            base.as_ref()
+                .map(|b| b.artifact().map(|a| a.artifact_info()))
+                .transpose()?,
+        )?;
+        match command {
+            ConfigWrapper::ContainerBuild(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| Ok(b.artifact()?.container_image()?))
+                    .transpose()?;
+                return Ok(Target::Artifact(Artifact::ContainerImage(
+                    ContainerArtifact::from_config(target_info, artifact_info, command, base),
+                )));
+            }
+            _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
         }
-    }
-
-    pub fn exec(&self) -> &ExecCommand {
-        match self {
-            Self::Exec(command) => command,
-            Self::Container(_) => panic!("Expected exec command, got container command"),
-            Self::ContainerBuild(_) => panic!("Expected exec command, got container build"),
-        }
-    }
-
-    pub fn container(&self) -> &ContainerCommand {
-        match self {
-            Self::Exec(_) => panic!("Expected container command, got exec command"),
-            Self::Container(command) => command,
-            Self::ContainerBuild(_) => panic!("Expected exec command, got container build"),
-        }
-    }
-
-    pub fn container_build(&self) -> &ContainerBuild {
-        match self {
-            Self::Exec(_) => panic!("Expected container build, got exec command"),
-            Self::Container(_) => panic!("Expected container build, got container command"),
-            Self::ContainerBuild(command) => command,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        self.fully_qualified_name().name.as_str()
-    }
-
-    pub fn daemon(&self) -> bool {
-        match self {
-            Self::Exec(command) => command.daemon,
-            Self::Container(command) => command.daemon,
-            Self::ContainerBuild(_) => false,
-        }
-    }
-
-    pub fn requires(&self) -> Vec<String> {
-        match self {
-            Self::Exec(command) => command.requires.clone(),
-            Self::Container(command) => command.requires.clone(),
-            Self::ContainerBuild(command) => command.requires.clone(),
-        }
-    }
-
-    pub fn updates_paths(&self) -> Option<Vec<String>> {
-        match self {
-            Self::Exec(_) => None,
-            Self::Container(_) => None,
-            Self::ContainerBuild(_) => None,
-        }
-    }
-
-    pub fn if_files_changed(&self) -> Option<Vec<String>> {
-        match self {
-            Self::Exec(_) => None,
-            Self::Container(_) => None,
-            Self::ContainerBuild(command) => command.if_files_changed.clone(),
+    } else {
+        let command_info = command_info_from_config(
+            name,
+            command.command_info().expect("{} doesn't have config_info"),
+            base.as_ref()
+                .map(|b| b.command().map(|c| c.command_info()))
+                .transpose()?,
+        );
+        match command {
+            ConfigWrapper::Exec(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| Ok(b.command()?.exec()?))
+                    .transpose()?;
+                return Ok(Target::Command(Command::Exec(ExecCommand::from_config(
+                    target_info,
+                    command_info,
+                    command,
+                    base,
+                ))));
+            }
+            ConfigWrapper::Container(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| Ok(b.command()?.container()?))
+                    .transpose()?;
+                return Ok(Target::Command(Command::Container(
+                    ContainerCommand::from_config(
+                        target_info,
+                        command_info,
+                        &command.with_resolved_targets(name_map)?,
+                        base,
+                    ),
+                )));
+            }
+            _ => panic!("Unknown command type, got <{}>", command.type_tag()),
         }
     }
 }
@@ -294,27 +419,47 @@ enum ConfigWrapper {
 }
 
 impl ConfigWrapper {
-    fn extends(&self) -> Option<String> {
+    fn target_info(&self) -> &ConfigTargetInfo {
         match self {
-            ConfigWrapper::Exec(command) => command.extends.clone(),
-            ConfigWrapper::Container(command) => command.extends.clone(),
-            ConfigWrapper::ContainerBuild(command) => command.extends.clone(),
+            Self::Exec(command) => &command.target_info,
+            Self::Container(command) => &command.target_info,
+            Self::ContainerBuild(command) => &command.target_info,
         }
+    }
+
+    fn command_info(&self) -> Option<&ConfigCommandInfo> {
+        match self {
+            Self::Exec(command) => Some(&command.command_info),
+            Self::Container(command) => Some(&command.command_info),
+            Self::ContainerBuild(_) => None,
+        }
+    }
+
+    fn artifact_info(&self) -> Option<&ConfigArtifactInfo> {
+        match self {
+            Self::Exec(_) => None,
+            Self::Container(_) => None,
+            Self::ContainerBuild(command) => Some(&command.artifact_info),
+        }
+    }
+
+    fn extends(&self) -> Option<String> {
+        self.target_info().extends.clone()
     }
 
     fn type_tag(&self) -> &'static str {
         match self {
-            ConfigWrapper::Exec(c) => c.type_tag(),
-            ConfigWrapper::Container(c) => c.type_tag(),
-            ConfigWrapper::ContainerBuild(c) => c.type_tag(),
+            Self::Exec(c) => c.type_tag(),
+            Self::Container(c) => c.type_tag(),
+            Self::ContainerBuild(c) => c.type_tag(),
         }
     }
 
-    fn to_context(&self, name: FullyQualifiedName, base: Option<&Target>) -> Target {
+    fn is_artifact(&self) -> bool {
         match self {
-            ConfigWrapper::Exec(command) => Target::Exec(ExecCommand::from_config(name, command, base.map(|b| b.exec()))),
-            ConfigWrapper::Container(command) => Target::Container(ContainerCommand::from_config(name, command, base.map(|b| b.container()))),
-            ConfigWrapper::ContainerBuild(command) => Target::ContainerBuild(ContainerBuild::from_config(name, command, base.map(|b| b.container_build()))),
+            Self::Exec(c) => c.is_artifact(),
+            Self::Container(c) => c.is_artifact(),
+            Self::ContainerBuild(c) => c.is_artifact(),
         }
     }
 }
@@ -327,32 +472,43 @@ impl Context {
             context.globals = globals.clone();
         }
         let mut commands = HashMap::new();
+        let mut name_map = HashMap::new();
         if let Some(ref c) = config.command {
             for (name, config_command) in c.exec.iter().flatten() {
                 let fully_qualified_name = FullyQualifiedName {
                     tag: config_command.type_tag().to_string(),
                     name: name.clone(),
                 };
-                if let Some(ref variables) = config_command.variables {
-                    context.variables.insert(
-                        fully_qualified_name.clone(),
-                        (*variables).clone(),
-                    );
-                }
-                commands.insert(fully_qualified_name, ConfigWrapper::Exec(config_command.clone()));
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::Exec(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
             }
             for (name, config_command) in c.container.iter().flatten() {
                 let fully_qualified_name = FullyQualifiedName {
                     tag: config_command.type_tag().to_string(),
                     name: name.clone(),
                 };
-                if let Some(ref variables) = config_command.variables {
-                    context.variables.insert(
-                        fully_qualified_name.clone(),
-                        (*variables).clone(),
-                    );
-                }
-                commands.insert(fully_qualified_name, ConfigWrapper::Container(config_command.clone()));
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::Container(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
             }
         }
         if let Some(ref c) = config.artifact {
@@ -361,22 +517,39 @@ impl Context {
                     tag: config_command.type_tag().to_string(),
                     name: name.clone(),
                 };
-                if let Some(ref variables) = config_command.variables {
-                    context.variables.insert(
-                        fully_qualified_name.clone(),
-                        (*variables).clone(),
-                    );
-                }
-                commands.insert(fully_qualified_name, ConfigWrapper::ContainerBuild(config_command.clone()));
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::ContainerBuild(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
             }
         }
-        context.resolve_extends(&commands)?;
+        for (name, command) in commands.iter() {
+            if let Some(ref variables) = command.target_info().variables {
+                context.variables.insert(name.clone(), (*variables).clone());
+            }
+        }
+        context.resolve_extends(&commands, &name_map)?;
         Ok(context)
     }
 
-    fn resolve_extends(&mut self, commands: &HashMap<FullyQualifiedName, ConfigWrapper>) -> Result<()> {
+    fn resolve_extends(
+        &mut self,
+        commands: &HashMap<FullyQualifiedName, ConfigWrapper>,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<()> {
         for (name, command) in commands.iter() {
-            self.targets.insert(name.clone(), resolve_extends(name.clone(), command, commands)?);
+            self.targets.insert(
+                name.clone(),
+                resolve_extends(name.clone(), command, commands, name_map)?,
+            );
         }
         Ok(())
     }
@@ -398,8 +571,10 @@ impl Context {
         args: Option<Vec<String>>,
         default_args: &Option<String>,
     ) -> Result<String> {
-        debug!("Resolving variables in <{}> for <{}>", command, this_target_name);
-        debug!("{:?}", self.variables);
+        debug!(
+            "Resolving variables in <{}> for <{}>",
+            command, this_target_name
+        );
         let escaped_args_str = if let Some(ref args) = args {
             if args.is_empty() {
                 default_args.clone().unwrap_or_default()
@@ -425,43 +600,28 @@ impl Context {
                     let variable = &command[index + found + 1..index + found + end_index];
                     debug!("Found variable <{}>", variable);
                     index += found + end_index + 1;
-                    let replacement = if variable.contains(".") {
-                        let (target_name, variable) = variable.split_once(".").unwrap();
-                        debug!("Resolving variable <{}> for <{}>", variable, target_name);
-                        if target_name == "globals" {
-                            self.globals.get(variable)
-                        } else {
-                            match self.get_command(target_name) {
-                                CommandLookupResult::Found(cmd) => {
-                                    if variable.starts_with("output.") {
-                                        let variable = &variable["output.".len()..];
-                                        outputs.outputs.get(&cmd.fully_qualified_name()).and_then(|outputs| {
-                                            outputs.get(variable)
-                                        })
-                                    } else {
-                                        self.variables.get(&cmd.fully_qualified_name()).and_then(|variables| {
-                                            variables.get(variable)
-                                        })
-                                    }
-                                },
-                                CommandLookupResult::NotFound => None,
-                                CommandLookupResult::Duplicates(duplicates) => {
-                                    return Err(anyhow!("While resolving substution <{{{}.{}}}>: command <{}> is ambiguous, could be <{}>", target_name, variable, target_name, duplicates.join(", ")));
-                                }
+                    let replacement = match Variable::from_string(variable)? {
+                        Variable::Simple(key) => {
+                            if key == "args" {
+                                replaced_args = true;
+                                Some(&escaped_args_str)
+                            } else {
+                                self.variables
+                                    .get(this_target_name)
+                                    .and_then(|variables| variables.get(&key))
                             }
                         }
-                    } else {
-                        if variable == "args" {
-                            replaced_args = true;
-                            Some(&escaped_args_str)
-                        } else {
-                            self.variables.get(this_target_name).and_then(|variables| {
-                                variables.get(variable)
-                            })
-                        }
+                        Variable::Global(key) => self.globals.get(&key),
+                        Variable::Output(target_name, key) => outputs
+                            .get(&FullyQualifiedName::from_string(target_name.as_str()), &key),
+                        Variable::Ref(target_name, key) => self
+                            .variables
+                            .get(&FullyQualifiedName::from_string(target_name.as_str()))
+                            .and_then(|variables| variables.get(&key)),
                     };
                     if let Some(replacement) = replacement {
-                        let new_resolved = resolved.replace(format!("{{{}}}", variable).as_str(), replacement);
+                        let new_resolved =
+                            resolved.replace(format!("{{{}}}", variable).as_str(), replacement);
                         if new_resolved != resolved {
                             debug!("Resolved variable <{}> to <{}>", variable, replacement);
                         }
@@ -492,29 +652,51 @@ impl Context {
         args: Vec<String>,
         default_args: &Option<String>,
     ) -> Result<String> {
-        self.resolve_substitutions_inner(command, this_target_name, outputs, Some(args), default_args)
+        self.resolve_substitutions_inner(
+            command,
+            this_target_name,
+            outputs,
+            Some(args),
+            default_args,
+        )
     }
 
-    pub fn get_command(&self, name: &str) -> CommandLookupResult {
+    pub fn get_target(&self, name: &str) -> CommandLookupResult {
         if name.contains(".") {
             let (tag, name) = name.split_once(".").unwrap();
             let fully_qualified_name = FullyQualifiedName {
                 tag: tag.to_string(),
                 name: name.to_string(),
             };
-            return self.targets.get(&fully_qualified_name).map(|target| {
-                CommandLookupResult::Found(target.clone())
-            }).unwrap_or(CommandLookupResult::NotFound);
+            return self
+                .targets
+                .get(&fully_qualified_name)
+                .map(|target| CommandLookupResult::Found(target.clone()))
+                .unwrap_or(CommandLookupResult::NotFound);
         } else {
-            debug!("Looking up command <{}> in <{:?}>", name, self.targets.keys().map(|key| key.to_string()).collect::<Vec<_>>());
-            let duplicates = self.targets.keys().filter(|key| key.name == name).collect::<Vec<_>>();
+            debug!(
+                "Looking up command <{}> in <{:?}>",
+                name,
+                self.targets
+                    .keys()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>()
+            );
+            let duplicates = self
+                .targets
+                .keys()
+                .filter(|key| key.name == name)
+                .collect::<Vec<_>>();
             if duplicates.len() > 1 {
-                return CommandLookupResult::Duplicates(duplicates.iter().map(|key| key.to_string()).collect());
+                return CommandLookupResult::Duplicates(
+                    duplicates.iter().map(|key| key.to_string()).collect(),
+                );
             }
             if let Some(name) = duplicates.first() {
-                self.targets.get(name).map(|target| {
-                    CommandLookupResult::Found(target.clone())
-                }).unwrap_or(CommandLookupResult::NotFound)
+                self.targets
+                    .get(name)
+                    .map(|target| CommandLookupResult::Found(target.clone()))
+                    .unwrap_or(CommandLookupResult::NotFound)
             } else {
                 CommandLookupResult::NotFound
             }
@@ -525,6 +707,7 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::targets::command::exec::ExecCommand;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -553,21 +736,8 @@ mod tests {
     }
 
     #[test]
-    fn store_output() {
-        let mut outputs = OutputsManager::default();
-        let target_name = FullyQualifiedName {
-            tag: "tag".to_string(),
-            name: "test".to_string(),
-        };
-        outputs.store_output(target_name.clone(), "key", "value");
-        assert_eq!(outputs.outputs.len(), 1);
-        let test_outputs = outputs.outputs.get(&target_name).unwrap();
-        assert_eq!(test_outputs.len(), 1);
-        assert_eq!(test_outputs.get("key"), Some(&"value".to_string()));
-    }
-
-    #[test]
     fn resolve_substitutions_with_variable() {
+        init();
         let mut context = Context::default();
         let outputs = OutputsManager::default();
         context
@@ -594,20 +764,24 @@ mod tests {
         };
         outputs.store_output(qualified_name.clone(), "key", "value");
         let cmd = ExecCommand {
-            name: qualified_name.clone(),
+            target_info: TargetInfo {
+                name: qualified_name.clone(),
+                requires: vec![],
+                variables: HashMap::new(),
+            },
+            command_info: CommandInfo { daemon: false },
             command: "echo {foo.output.key}".to_string(),
-            daemon: false,
-            requires: vec![],
-            variables: HashMap::new(),
             default_args: None,
         };
-        context.targets.insert(qualified_name, Target::Exec(cmd));
+        context
+            .targets
+            .insert(qualified_name, Target::Command(Command::Exec(cmd)));
         let this_target = FullyQualifiedName {
             tag: ConfigContainerCommand::tag().to_string(),
             name: "bar".to_string(),
         };
         let resolved = context
-            .resolve_substitutions("echo {foo.output.key}", &this_target, &outputs)
+            .resolve_substitutions("echo {command.exec.foo.output.key}", &this_target, &outputs)
             .unwrap();
         assert_eq!(resolved, "echo value");
     }
@@ -625,7 +799,10 @@ mod tests {
             &OutputsManager::default(),
         );
         assert!(resolved.is_err());
-        assert_eq!(resolved.unwrap_err().to_string(), "Variable <globals.key> not found");
+        assert_eq!(
+            resolved.unwrap_err().to_string(),
+            "Variable <globals.key> not found"
+        );
     }
 
     #[test]
@@ -720,6 +897,229 @@ mod tests {
             )
             .unwrap();
         assert_eq!(resolved, "echo arg");
+    }
+
+    #[test]
+    fn test_get_lookup_name() {
+        let name = get_lookup_name("tag.name".to_string(), "default".to_string());
+        assert_eq!(name.tag, "tag");
+        assert_eq!(name.name, "name");
+        let name = get_lookup_name("name".to_string(), "default".to_string());
+        assert_eq!(name.tag, "default");
+        assert_eq!(name.name, "name");
+    }
+
+    #[test]
+    fn test_resolve_requires() {
+        let mut name_map = HashMap::new();
+        name_map.insert(
+            "a".to_string(),
+            vec![FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "a".to_string(),
+            }],
+        );
+        name_map.insert(
+            "b".to_string(),
+            vec![FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "b".to_string(),
+            }],
+        );
+        let requires = vec!["a".to_string(), "b".to_string()];
+        let resolved = resolve_requires(requires.iter(), &name_map).unwrap();
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].name, "a");
+        assert_eq!(resolved[1].name, "b");
+    }
+
+    #[test]
+    fn test_resolve_requires_ambiguous() {
+        let mut name_map = HashMap::new();
+        name_map.insert(
+            "a".to_string(),
+            vec![FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "a".to_string(),
+            }],
+        );
+        name_map.insert(
+            "b".to_string(),
+            vec![
+                FullyQualifiedName {
+                    tag: "tag".to_string(),
+                    name: "b".to_string(),
+                },
+                FullyQualifiedName {
+                    tag: "tag".to_string(),
+                    name: "b".to_string(),
+                },
+            ],
+        );
+        let requires = vec!["a".to_string(), "b".to_string()];
+        let resolved = resolve_requires(requires.iter(), &name_map);
+        assert!(resolved.is_err());
+        assert_eq!(
+            resolved.unwrap_err().to_string(),
+            "Ambiguous reference <b>, could be <tag.b, tag.b>"
+        );
+    }
+
+    #[test]
+    fn test_resolve_requires_non_existent() {
+        let name_map = HashMap::new();
+        let requires = vec!["a".to_string(), "b".to_string()];
+        let resolved = resolve_requires(requires.iter(), &name_map);
+        assert!(resolved.is_err());
+        assert_eq!(
+            resolved.unwrap_err().to_string(),
+            "Non-existent reference <a>"
+        );
+    }
+
+    #[test]
+    fn test_target_info_from_config() {
+        let config = ConfigTargetInfo {
+            requires: Some(vec!["a".to_string(), "b".to_string()]),
+            variables: Some(HashMap::new()),
+            extends: None,
+        };
+        let mut name_map = HashMap::new();
+        name_map.insert(
+            "a".to_string(),
+            vec![FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "a".to_string(),
+            }],
+        );
+        name_map.insert(
+            "b".to_string(),
+            vec![FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "b".to_string(),
+            }],
+        );
+        let target_info = target_info_from_config(
+            FullyQualifiedName {
+                tag: "tag".to_string(),
+                name: "name".to_string(),
+            },
+            &config,
+            &name_map,
+            None,
+        )
+        .unwrap();
+        assert_eq!(target_info.name.name, "name");
+        assert_eq!(target_info.requires.len(), 2);
+        assert_eq!(target_info.variables.len(), 0);
+    }
+
+    #[test]
+    fn test_variable_from_string_simple() {
+        let variable = Variable::from_string("foo").unwrap();
+        match variable {
+            Variable::Simple(s) => assert_eq!(s, "foo"),
+            _ => panic!("Expected simple variable"),
+        }
+    }
+
+    #[test]
+    fn test_variable_from_string_global() {
+        let variable = Variable::from_string("globals.foo").unwrap();
+        match variable {
+            Variable::Global(s) => assert_eq!(s, "foo"),
+            _ => panic!("Expected global variable"),
+        }
+    }
+
+    #[test]
+    fn test_variable_from_string_output() {
+        let variable = Variable::from_string("commands.foo.output.bar").unwrap();
+        match variable {
+            Variable::Output(target, s) => {
+                assert_eq!(target, "commands.foo");
+                assert_eq!(s, "bar");
+            }
+            _ => panic!("Expected output variable"),
+        }
+    }
+
+    #[test]
+    fn test_variable_from_string_output_multi_part() {
+        let variable = Variable::from_string("commands.exec.foo.output.bar").unwrap();
+        match variable {
+            Variable::Output(target, s) => {
+                assert_eq!(target, "commands.exec.foo");
+                assert_eq!(s, "bar");
+            }
+            _ => panic!("Expected output variable"),
+        }
+    }
+
+    #[test]
+    fn test_variable_from_string_ref() {
+        let variable = Variable::from_string("commands.foo.bar").unwrap();
+        match variable {
+            Variable::Ref(target, s) => {
+                assert_eq!(target, "commands.foo");
+                assert_eq!(s, "bar");
+            }
+            _ => panic!("Expected ref variable"),
+        }
+    }
+
+    #[test]
+    fn test_variable_from_string_ref_multi_part() {
+        let variable = Variable::from_string("commands.exec.foo.bar").unwrap();
+        match variable {
+            Variable::Ref(target, s) => {
+                assert_eq!(target, "commands.exec.foo");
+                assert_eq!(s, "bar");
+            }
+            _ => panic!("Expected ref variable"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_target_names_in() {
+        let mut name_map = HashMap::new();
+        name_map.insert(
+            "foo".to_string(),
+            vec![FullyQualifiedName {
+                tag: "command".to_string(),
+                name: "foo".to_string(),
+            }],
+        );
+        let resolved = resolve_target_names_in("{foo.bar}", &name_map).unwrap();
+        assert_eq!(resolved, "{command.foo.bar}");
+    }
+
+    #[test]
+    fn test_resolve_target_names_in_with_output() {
+        let mut name_map = HashMap::new();
+        name_map.insert(
+            "foo".to_string(),
+            vec![FullyQualifiedName {
+                tag: "commands".to_string(),
+                name: "foo".to_string(),
+            }],
+        );
+        let resolved = resolve_target_names_in("{foo.output.bar}", &name_map).unwrap();
+        assert_eq!(resolved, "{commands.foo.output.bar}");
+    }
+
+    #[test]
+    fn test_resolve_target_names_in_with_global() {
+        let name_map = HashMap::new();
+        let resolved = resolve_target_names_in("{globals.bar}", &name_map).unwrap();
+        assert_eq!(resolved, "{globals.bar}");
+    }
+
+    #[test]
+    fn test_resolve_target_names_in_with_simple() {
+        let name_map = HashMap::new();
+        let resolved = resolve_target_names_in("{bar}", &name_map).unwrap();
+        assert_eq!(resolved, "{bar}");
     }
 
     // TODO: from_config tests

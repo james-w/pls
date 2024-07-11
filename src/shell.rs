@@ -1,4 +1,6 @@
-use crate::context::{Context, FullyQualifiedName, OutputsManager};
+use crate::context::Context;
+use crate::name::FullyQualifiedName;
+use crate::outputs::OutputsManager;
 
 pub fn escape_string(s: &str) -> Result<String, shlex::QuoteError> {
     Ok(shlex::try_quote(s)?.to_string())

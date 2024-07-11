@@ -7,24 +7,26 @@ use anyhow::Result;
 use clap::Parser;
 use log::{debug, error, warn, Log};
 
-mod cmd;
 mod cleanup;
+mod cmd;
 mod commands;
 mod config;
 mod containers;
 mod context;
-mod runner;
+mod default;
+mod name;
+mod outputs;
+mod rand;
 mod shell;
+mod target;
+mod targets;
 
-use cmd::{Args, Execute};
 use cleanup::CleanupManager;
+use cmd::{Args, Execute};
 use config::{find_config_file, Config};
 use context::Context;
 
-fn run(
-    args: Args,
-    cleanup_manager: Arc<Mutex<CleanupManager>>,
-) -> Result<()> {
+fn run(args: Args, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
     let config_path =
         find_config_file().expect("Could not find config file in this directory or any parent");
     let config = Config::load_and_validate(&config_path)?;
@@ -64,11 +66,7 @@ fn start_cleanup_thread(cleanup_manager: Arc<Mutex<CleanupManager>>, running: Ar
         while running.load(std::sync::atomic::Ordering::SeqCst) {}
         warn!("Received stop signal, cleaning up...");
         let mut manager = cleanup_manager.lock().unwrap();
-        let cleanups = std::mem::take(&mut (*manager).cleanups);
-        for cleanup in cleanups.into_iter().rev() {
-            debug!("Running cleanup");
-            cleanup();
-        }
+        manager.run_cleanups();
         debug!("All cleanups run, exiting...");
         std::process::exit(130);
     });

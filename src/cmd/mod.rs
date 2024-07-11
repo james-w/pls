@@ -3,15 +3,15 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-mod execute;
 mod build;
+mod execute;
 mod run;
 mod start;
 mod stop;
 
-use build::BuildCommand;
 use crate::cleanup::CleanupManager;
 use crate::context::Context;
+use build::BuildCommand;
 pub use execute::Execute;
 use run::RunCommand;
 use start::StartCommand;
@@ -46,16 +46,11 @@ pub enum Commands {
 
     /// Build an artifact
     Build(BuildCommand),
-
     // TODO: status, logs
 }
 
 impl Execute for Commands {
-    fn execute(
-        &self,
-        context: Context,
-        cleanup_manager: Arc<Mutex<CleanupManager>>,
-    ) -> Result<()> {
+    fn execute(&self, context: Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
         match self {
             Commands::Run(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Start(cmd) => cmd.execute(context, cleanup_manager),
@@ -64,4 +59,3 @@ impl Execute for Commands {
         }
     }
 }
-

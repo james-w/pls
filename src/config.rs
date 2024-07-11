@@ -5,6 +5,11 @@ use anyhow::Result;
 use log::debug;
 use serde::Deserialize;
 
+use crate::context::{
+    resolve_target_names_in, resolve_target_names_in_map, resolve_target_names_in_vec,
+};
+use crate::name::FullyQualifiedName;
+
 #[derive(Deserialize, Clone, Default, Debug)]
 pub struct Config {
     pub globals: Option<HashMap<String, String>>,
@@ -20,6 +25,24 @@ pub struct Artifact {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct TargetInfo {
+    pub requires: Option<Vec<String>>,
+    pub extends: Option<String>,
+    pub variables: Option<HashMap<String, String>>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct CommandInfo {
+    pub daemon: Option<bool>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ArtifactInfo {
+    pub updates_paths: Option<Vec<String>>,
+    pub if_files_changed: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct Command {
     pub exec: Option<HashMap<String, ExecCommand>>,
     pub container: Option<HashMap<String, ContainerCommand>>,
@@ -28,11 +51,13 @@ pub struct Command {
 #[derive(Deserialize, Clone, Debug)]
 pub struct ExecCommand {
     pub command: Option<String>,
-    pub requires: Option<Vec<String>>,
-    pub daemon: Option<bool>,
-    pub extends: Option<String>,
-    pub variables: Option<HashMap<String, String>>,
     pub default_args: Option<String>,
+
+    #[serde(flatten)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    pub command_info: CommandInfo,
 }
 
 impl ExecCommand {
@@ -43,22 +68,28 @@ impl ExecCommand {
     pub fn type_tag(&self) -> &'static str {
         Self::tag()
     }
+
+    pub fn is_artifact(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct ContainerCommand {
     pub image: Option<String>,
-    pub daemon: Option<bool>,
     pub env: Option<Vec<String>>,
-    pub requires: Option<Vec<String>>,
-    pub variables: Option<HashMap<String, String>>,
     pub command: Option<String>,
     pub mount: Option<HashMap<String, String>>,
     pub workdir: Option<String>,
     pub network: Option<String>,
     pub create_network: Option<bool>,
-    pub extends: Option<String>,
     pub default_args: Option<String>,
+
+    #[serde(flatten)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    pub command_info: CommandInfo,
 }
 
 impl ContainerCommand {
@@ -69,16 +100,66 @@ impl ContainerCommand {
     pub fn type_tag(&self) -> &'static str {
         Self::tag()
     }
+
+    pub fn is_artifact(&self) -> bool {
+        false
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.image = self
+            .image
+            .as_ref()
+            .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.command = self
+            .command
+            .as_ref()
+            .map(|c| resolve_target_names_in(c, name_map))
+            .transpose()?;
+        new.mount = self
+            .mount
+            .as_ref()
+            .map(|m| resolve_target_names_in_map(m, name_map))
+            .transpose()?;
+        new.workdir = self
+            .workdir
+            .as_ref()
+            .map(|w| resolve_target_names_in(w, name_map))
+            .transpose()?;
+        new.network = self
+            .network
+            .as_ref()
+            .map(|n| resolve_target_names_in(n, name_map))
+            .transpose()?;
+        new.create_network = self.create_network.clone();
+        new.default_args = self
+            .default_args
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        Ok(new)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct ContainerBuild {
     pub context: Option<String>,
     pub tag: Option<String>,
-    pub variables: Option<HashMap<String, String>>,
-    pub requires: Option<Vec<String>>,
-    pub if_files_changed: Option<Vec<String>>,
-    pub extends: Option<String>,
+
+    #[serde(flatten)]
+    pub artifact_info: ArtifactInfo,
+
+    #[serde(flatten)]
+    pub target_info: TargetInfo,
 }
 
 impl ContainerBuild {
@@ -88,6 +169,10 @@ impl ContainerBuild {
 
     pub fn type_tag(&self) -> &'static str {
         Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        true
     }
 }
 
@@ -115,6 +200,7 @@ impl Config {
     pub fn load_and_validate(config_path: &PathBuf) -> Result<Self> {
         let config_str = std::fs::read_to_string(config_path)?;
         let config: Config = toml::from_str(config_str.as_str())?;
+        debug!("Loaded config: {:?}", config);
         config.validate()?;
         Ok(config)
     }

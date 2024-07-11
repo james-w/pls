@@ -5,8 +5,9 @@ use clap::Parser;
 
 use crate::cleanup::CleanupManager;
 use crate::cmd::execute::Execute;
-use crate::context::{CommandLookupResult, Context, OutputsManager};
-use crate::runner::run_target;
+use crate::context::{CommandLookupResult, Context};
+use crate::outputs::OutputsManager;
+use crate::target::Targetable;
 
 #[derive(Parser, Debug)]
 pub struct RunCommand {
@@ -18,15 +19,19 @@ pub struct RunCommand {
 }
 
 impl Execute for RunCommand {
-    fn execute(
-        &self,
-        context: Context,
-        cleanup_manager: Arc<Mutex<CleanupManager>>,
-    ) -> Result<()> {
+    fn execute(&self, context: Context, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
         let mut outputs = OutputsManager::default();
-        match context.get_command(self.name.as_str()) {
+        match context.get_target(self.name.as_str()) {
             CommandLookupResult::Found(target) => {
-                run_target(&target.clone(), &context, &mut outputs, cleanup_manager, self.args.clone()).map_err(|e| e.into())
+                let runner = target.as_runnable();
+                if let Some(runner) = runner {
+                    runner.run(&context, &mut outputs, cleanup_manager, self.args.clone())
+                } else {
+                    return Err(anyhow!(
+                        "Target <{}> is not runnable",
+                        self.name
+                    ));
+                }
             },
             CommandLookupResult::NotFound => {
                 Err(anyhow!(

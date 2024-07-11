@@ -32,10 +32,7 @@ pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
     }
 }
 
-fn send_signal(
-    pid: nix::unistd::Pid,
-    signal: nix::sys::signal::Signal,
-) -> Result<()> {
+fn send_signal(pid: nix::unistd::Pid, signal: nix::sys::signal::Signal) -> Result<()> {
     debug!("Sending <{}> to process <{}>", signal, pid);
     match nix::sys::signal::kill(pid, signal) {
         Ok(_) => Ok(()),
@@ -46,21 +43,13 @@ fn send_signal(
 pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
     let mut signal = nix::sys::signal::SIGTERM;
     let start = std::time::Instant::now();
-    send_signal(pid, signal).map_err(|e| {
-        anyhow!(
-            "Error sending kill signal to process <{}>: {}",
-            pid, e
-        )
-    })?;
+    send_signal(pid, signal)
+        .map_err(|e| anyhow!("Error sending kill signal to process <{}>: {}", pid, e))?;
     while is_process_alive(pid) {
         if start.elapsed() > Duration::from_secs(10) {
             signal = nix::sys::signal::SIGKILL;
-            send_signal(pid, signal).map_err(|e| {
-                anyhow!(
-                    "Error sending kill signal to process <{}>: {}",
-                    pid, e
-                )
-            })?;
+            send_signal(pid, signal)
+                .map_err(|e| anyhow!("Error sending kill signal to process <{}>: {}", pid, e))?;
         }
         let status = nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG))
             .map_or_else(
@@ -73,12 +62,7 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
                 },
                 |x| Ok(Some(x)),
             )
-            .map_err(|e| {
-                anyhow!(
-                    "Error waiting for process {}: {}",
-                    pid, e
-                )
-            })?;
+            .map_err(|e| anyhow!("Error waiting for process {}: {}", pid, e))?;
         if let Some(status) = status {
             match status {
                 nix::sys::wait::WaitStatus::Exited(_, _) => {
@@ -105,9 +89,7 @@ pub fn run_command(cmd: &str) -> Result<()> {
         if let Some(code) = status.code() {
             return Err(anyhow!("Command failed with exit code: {}", code));
         } else {
-            return Err(anyhow!(
-                "Command terminated by a signal"
-            ));
+            return Err(anyhow!("Command terminated by a signal"));
         }
     }
     Ok(())
@@ -150,10 +132,7 @@ pub fn spawn_command_with_pidfile(
         );
         let pid = pid_str.trim().parse::<i32>()?;
         if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
-            return Err(anyhow!(
-                "Daemon for is already running with pid <{}>",
-                pid
-            ));
+            return Err(anyhow!("Daemon for is already running with pid <{}>", pid));
         }
         debug!("Process with pid <{}> is not running, continuing", pid);
     }
@@ -175,6 +154,34 @@ pub fn spawn_command_with_pidfile(
         pid_path.display()
     );
     std::fs::write(&pid_path, child.id().to_string())?;
+    Ok(())
+}
+
+pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn() -> ()) -> Result<()> {
+    let mut pid_str = std::fs::read_to_string(pid_path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => anyhow!("Task not running"),
+        _ => anyhow!(
+            "Error reading pid file for target at <{}>: {}",
+            pid_path.display(),
+            e
+        ),
+    })?;
+    pid_str = pid_str.trim().to_string();
+    debug!(
+        "Found pid <{}> for target at <{}>",
+        pid_str,
+        pid_path.display()
+    );
+
+    let pid = nix::unistd::Pid::from_raw(pid_str.parse::<i32>()?);
+    if is_process_alive(pid) {
+        on_stop();
+        stop_process(pid)?;
+    } else {
+        debug!("Process with pid <{}> is no longer alive", pid,);
+    }
+    debug!("Removing pid file at <{}>", pid_path.display());
+    std::fs::remove_file(&pid_path)?;
     Ok(())
 }
 
