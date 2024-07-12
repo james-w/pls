@@ -185,7 +185,7 @@ impl Artifact {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut Vec<&Target>,
+        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         check_should_rerun: bool,
     ) -> Result<()> {
@@ -414,7 +414,7 @@ impl Command {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut Vec<&Target>,
+        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
@@ -440,7 +440,7 @@ impl Command {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut Vec<&Target>,
+        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
@@ -681,7 +681,7 @@ fn update_times_of_glob_ignoring_missing(glob_str: &str) -> Result<Vec<LastRun>>
 }
 
 fn latest_update_time_of_paths(
-    paths: &Vec<String>,
+    paths: &[String],
     target: &TargetInfo,
     context: &Context,
     outputs: &OutputsManager,
@@ -698,7 +698,7 @@ fn latest_update_time_of_paths(
 }
 
 fn latest_update_time_of_paths_ignoring_missing(
-    paths: &Vec<String>,
+    paths: &[String],
     target: &TargetInfo,
     context: &Context,
     outputs: &OutputsManager,
@@ -753,7 +753,7 @@ fn last_run(
 fn should_rerun(
     target: &TargetInfo,
     artifact_info: &ArtifactInfo,
-    resolved_requirements: &Vec<Target>,
+    resolved_requirements: &[Target],
     context: &Context,
     outputs: &OutputsManager,
 ) -> Result<bool> {

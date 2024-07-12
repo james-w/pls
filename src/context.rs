@@ -28,8 +28,8 @@ impl Variable {
     pub fn from_string(input: &str) -> Result<Self> {
         if !input.contains('.') {
             Ok(Self::Simple(input.to_string()))
-        } else if input.starts_with("globals.") {
-            Ok(Self::Global(input["globals.".len()..].to_string()))
+        } else if let Some(key) = input.strip_prefix("globals.") {
+            Ok(Self::Global(key.to_string()))
         } else {
             let parts = input.split('.').collect::<Vec<_>>();
             if parts.len() > 2 && parts[parts.len() - 2] == "output" {
@@ -199,7 +199,7 @@ pub fn resolve_target_names_in_map(
 }
 
 pub fn resolve_target_names_in_vec(
-    input: &Vec<String>,
+    input: &[String],
     name_map: &HashMap<String, Vec<FullyQualifiedName>>,
 ) -> Result<Vec<String>> {
     input
@@ -406,9 +406,9 @@ fn resolve_extends(
     }
 }
 
-pub enum CommandLookupResult {
+pub enum CommandLookupResult<'a> {
     NotFound,
-    Found(Target),
+    Found(&'a Target),
     Duplicates(Vec<String>),
 }
 
@@ -466,8 +466,7 @@ impl ConfigWrapper {
 
 impl Context {
     pub fn from_config(config: &Config, path: String) -> Result<Context> {
-        let mut context = Context::default();
-        context.config_path = path;
+        let mut context = Context { config_path: path, ..Default::default() };
         if let Some(ref globals) = config.globals {
             context.globals = globals.clone();
         }
@@ -671,7 +670,7 @@ impl Context {
             return self
                 .targets
                 .get(&fully_qualified_name)
-                .map(|target| CommandLookupResult::Found(target.clone()))
+                .map(CommandLookupResult::Found)
                 .unwrap_or(CommandLookupResult::NotFound);
         } else {
             debug!(
@@ -695,7 +694,7 @@ impl Context {
             if let Some(name) = duplicates.first() {
                 self.targets
                     .get(name)
-                    .map(|target| CommandLookupResult::Found(target.clone()))
+                    .map(CommandLookupResult::Found)
                     .unwrap_or(CommandLookupResult::NotFound)
             } else {
                 CommandLookupResult::NotFound
