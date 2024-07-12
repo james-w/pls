@@ -4,7 +4,7 @@ use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 
 pub struct TestContext {
-    workdir: assert_fs::TempDir,
+    pub workdir: assert_fs::TempDir,
 }
 
 impl TestContext {

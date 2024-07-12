@@ -8,14 +8,14 @@ use crate::{
     config::{
         ArtifactInfo as ConfigArtifactInfo, CommandInfo as ConfigCommandInfo, Config,
         ContainerBuild as ConfigContainerBuild, ContainerCommand as ConfigContainerCommand,
-        ExecCommand as ConfigExecCommand, TargetInfo as ConfigTargetInfo,
+        ExecCommand as ConfigExecCommand, TargetInfo as ConfigTargetInfo, ExecArtifact as ConfigExecArtifact,
     },
     default::default_to,
     name::FullyQualifiedName,
     outputs::OutputsManager,
     shell::escape_string,
     target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
-    targets::{ContainerArtifact, ContainerCommand, ExecCommand},
+    targets::{ContainerArtifact, ContainerCommand, ExecCommand, ExecArtifact},
 };
 
 enum Variable {
@@ -365,6 +365,15 @@ fn resolve_extends(
                 artifact.validate()?;
                 Ok(Target::Artifact(Artifact::ContainerImage(artifact)))
             }
+            ConfigWrapper::ExecArtifact(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| b.artifact()?.exec())
+                    .transpose()?;
+                let artifact = ExecArtifact::from_config(target_info, artifact_info, command, base);
+                artifact.validate()?;
+                Ok(Target::Artifact(Artifact::Exec(artifact)))
+            }
             _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
         }
     } else {
@@ -419,6 +428,7 @@ enum ConfigWrapper {
     Exec(ConfigExecCommand),
     Container(ConfigContainerCommand),
     ContainerBuild(ConfigContainerBuild),
+    ExecArtifact(ConfigExecArtifact),
 }
 
 impl ConfigWrapper {
@@ -427,6 +437,7 @@ impl ConfigWrapper {
             Self::Exec(command) => &command.target_info,
             Self::Container(command) => &command.target_info,
             Self::ContainerBuild(command) => &command.target_info,
+            Self::ExecArtifact(command) => &command.target_info,
         }
     }
 
@@ -435,6 +446,7 @@ impl ConfigWrapper {
             Self::Exec(command) => Some(&command.command_info),
             Self::Container(command) => Some(&command.command_info),
             Self::ContainerBuild(_) => None,
+            Self::ExecArtifact(_) => None,
         }
     }
 
@@ -443,6 +455,7 @@ impl ConfigWrapper {
             Self::Exec(_) => None,
             Self::Container(_) => None,
             Self::ContainerBuild(command) => Some(&command.artifact_info),
+            Self::ExecArtifact(command) => Some(&command.artifact_info),
         }
     }
 
@@ -455,6 +468,7 @@ impl ConfigWrapper {
             Self::Exec(c) => c.type_tag(),
             Self::Container(c) => c.type_tag(),
             Self::ContainerBuild(c) => c.type_tag(),
+            Self::ExecArtifact(c) => c.type_tag(),
         }
     }
 
@@ -463,6 +477,7 @@ impl ConfigWrapper {
             Self::Exec(c) => c.is_artifact(),
             Self::Container(c) => c.is_artifact(),
             Self::ContainerBuild(c) => c.is_artifact(),
+            Self::ExecArtifact(c) => c.is_artifact(),
         }
     }
 }
@@ -522,6 +537,24 @@ impl Context {
                 commands.insert(
                     fully_qualified_name.clone(),
                     ConfigWrapper::ContainerBuild(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
+            for (name, config_command) in c.exec.iter().flatten() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_command.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::ExecArtifact(config_command.clone()),
                 );
                 name_map
                     .entry(name.clone())

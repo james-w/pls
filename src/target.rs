@@ -12,7 +12,7 @@ use crate::cleanup::CleanupManager;
 use crate::context::Context;
 use crate::name::FullyQualifiedName;
 use crate::outputs::OutputsManager;
-use crate::targets::{ContainerArtifact, ContainerCommand, ExecCommand};
+use crate::targets::{ContainerArtifact, ContainerCommand, ExecCommand, ExecArtifact};
 
 #[derive(Debug, Clone)]
 pub enum Target {
@@ -110,24 +110,28 @@ pub trait Targetable {
 #[derive(Debug, Clone)]
 pub enum Artifact {
     ContainerImage(ContainerArtifact),
+    Exec(ExecArtifact),
 }
 
 impl Artifact {
     fn target_info(&self) -> &TargetInfo {
         match self {
             Self::ContainerImage(image) => &image.target_info,
+            Self::Exec(exec) => &exec.target_info,
         }
     }
 
     pub fn artifact_info(&self) -> &ArtifactInfo {
         match self {
             Self::ContainerImage(image) => &image.artifact_info,
+            Self::Exec(exec) => &exec.artifact_info,
         }
     }
 
     fn inner_as_buildable(&self) -> &dyn Buildable {
         match self {
             Self::ContainerImage(image) => image,
+            Self::Exec(exec) => exec,
         }
     }
 }
@@ -276,8 +280,17 @@ impl Artifact {
     pub fn container_image(&self) -> Result<&ContainerArtifact> {
         match self {
             Self::ContainerImage(image) => Ok(image),
+            _ => Err(anyhow!("Expected a container image artifact")),
         }
     }
+
+    pub fn exec(&self) -> Result<&ExecArtifact> {
+        match self {
+            Self::Exec(exec) => Ok(exec),
+            _ => Err(anyhow!("Expected an exec artifact")),
+        }
+    }
+
 }
 
 #[derive(Debug, Clone)]

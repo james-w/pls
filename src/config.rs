@@ -27,6 +27,9 @@ pub struct Artifact {
     //pub command: Option<HashMap<String, CommandArtifact>>,
     #[validate(nested)]
     pub container_image: Option<HashMap<String, ContainerBuild>>,
+
+    #[validate(nested)]
+    pub exec: Option<HashMap<String, ExecArtifact>>,
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -194,6 +197,36 @@ pub struct ContainerBuild {
 impl ContainerBuild {
     pub fn tag() -> &'static str {
         "artifact.container_image"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        true
+    }
+
+    // TODO: resolved target names in fields
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct ExecArtifact {
+    #[validate(length(min = 1, message="Command must not be empty"))]
+    pub command: Option<String>,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub artifact_info: ArtifactInfo,
+}
+
+impl ExecArtifact {
+    pub fn tag() -> &'static str {
+        "artifact.exec"
     }
 
     pub fn type_tag(&self) -> &'static str {

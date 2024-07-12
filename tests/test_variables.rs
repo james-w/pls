@@ -1,14 +1,15 @@
 use assert_cmd::prelude::*;
+use assert_fs::prelude::*;
 use predicates::prelude::*;
 
 mod common;
 
 #[test]
-fn test_container_command() {
+fn test_variables() {
     let config_src = r#"
-        [command.container.hello]
-        image = "docker.io/alpine:latest"
-        command = "echo hello"
+        [command.exec.hello]
+        command = "echo hello {place}"
+        variables = { place = "world" }
     "#;
 
     let test_context = common::TestContext::new();
@@ -19,27 +20,26 @@ fn test_container_command() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::eq("hello").trim());
+        .stdout(predicate::eq("hello world\n"));
 }
 
 #[test]
-fn test_extends() {
+fn test_globals() {
     let config_src = r#"
-        [command.container.hello]
-        image = "docker.io/alpine:latest"
+        [globals]
+        place = "world"
 
-        [command.container.world]
-        extends = "hello"
-        command = "echo world"
+        [command.exec.hello]
+        command = "echo hello {globals.place}"
     "#;
 
     let test_context = common::TestContext::new();
     test_context.write_config(config_src);
 
     let mut cmd = test_context.get_command();
-    cmd.arg("run").arg("world");
+    cmd.arg("run").arg("hello");
 
     cmd.assert()
         .success()
-        .stdout(predicate::eq("world").trim());
+        .stdout(predicate::eq("hello world\n"));
 }
