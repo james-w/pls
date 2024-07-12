@@ -7,11 +7,17 @@ pub struct TestContext {
     pub workdir: assert_fs::TempDir,
 }
 
-impl TestContext {
-    pub fn new() -> Self {
+impl Default for TestContext {
+    fn default() -> Self {
         Self {
             workdir: assert_fs::TempDir::new().unwrap(),
         }
+    }
+}
+
+impl TestContext {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn workdir(&self) -> &std::path::Path {

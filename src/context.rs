@@ -778,8 +778,7 @@ mod tests {
 
     #[test]
     fn uses_globals() {
-        let mut config = Config::default();
-        config.globals = Some(HashMap::new());
+        let mut config = Config { globals: Some(HashMap::new()), ..Default::default() };
         config
             .globals
             .as_mut()

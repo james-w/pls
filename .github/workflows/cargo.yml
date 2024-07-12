@@ -1,0 +1,30 @@
+name: Cargo Tests
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+jobs:
+  cargo:
+    timeout-minutes: 12
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        # Sync with dockerfiles/cargo-base/Dockerfile
+        toolchain: 1.75
+        override: true
+        components: rustfmt, clippy
+    - name: Setup cargo cache
+      uses: Swatinem/rust-cache@v2
+      continue-on-error: false
+    - name: Run cargo fmt
+      run: cargo fmt --check
+    - name: Run tests
+      run: cargo test
+    - name: Check lint
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    - name: Run cargo check
+      run: cargo check
