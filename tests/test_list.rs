@@ -20,6 +20,7 @@ fn test_list() {
     let mut cmd = test_context.get_command();
     cmd.arg("list");
 
-    cmd.assert().success().stdout(predicate::eq("artifact.exec.copy - \ncommand.container.hello - Hello world\n"));
+    cmd.assert().success().stdout(predicate::eq(
+        "artifact.exec.copy - \ncommand.container.hello - Hello world\n",
+    ));
 }
-

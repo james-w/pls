@@ -82,7 +82,11 @@ impl Runnable for ExecCommand {
     ) -> Result<()> {
         // TODO: default_args
         let command = self.resolve_command(context, outputs, args)?;
-        let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
+        let env = self
+            .env
+            .iter()
+            .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
+            .collect::<Result<Vec<String>>>()?;
         debug!(
             "Running target <{}> with command <{}>",
             self.target_info.name, command
@@ -107,11 +111,21 @@ impl Startable for ExecCommand {
         let log_path = config_dir.join("log");
         // TODO: default_args
         let cmd = self.resolve_command(context, outputs, args)?;
-        let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
+        let env = self
+            .env
+            .iter()
+            .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
+            .collect::<Result<Vec<String>>>()?;
         let log_start = || {
             info!("[{}] Starting {}", self.target_info.name, cmd);
         };
-        spawn_command_with_pidfile(cmd.as_str(), env.as_slice(), &pid_path, &log_path, log_start)
+        spawn_command_with_pidfile(
+            cmd.as_str(),
+            env.as_slice(),
+            &pid_path,
+            &log_path,
+            log_start,
+        )
     }
 
     fn stop(

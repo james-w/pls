@@ -62,7 +62,11 @@ impl Buildable for ExecArtifact {
             &self.target_info.name,
             outputs,
         )?;
-        let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
+        let env = self
+            .env
+            .iter()
+            .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
+            .collect::<Result<Vec<String>>>()?;
         debug!(
             "Building exec artifact for target <{}> with command <{}>",
             self.target_info.name, cmd

@@ -11,13 +11,20 @@ use crate::context::Context;
 pub struct ListCommand {}
 
 impl Execute for ListCommand {
-    fn execute(&self, context: Context, _cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
+    fn execute(
+        &self,
+        context: Context,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<()> {
         let mut targets = context.targets.iter().collect::<Vec<_>>();
         targets.sort_by(|a, b| a.0.cmp(b.0));
         for (name, target) in targets {
-            println!("{} - {}", name, target.target_info().description.clone().unwrap_or_default());
+            println!(
+                "{} - {}",
+                name,
+                target.target_info().description.clone().unwrap_or_default()
+            );
         }
         Ok(())
     }
 }
-

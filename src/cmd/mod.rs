@@ -54,7 +54,6 @@ pub enum Commands {
 
     /// List available targets
     List(ListCommand),
-
     // TODO: status, logs
 }
 

@@ -71,5 +71,7 @@ fn test_env() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("env");
 
-    cmd.assert().success().stdout(predicate::str::contains("HELLO=world").trim());
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("HELLO=world").trim());
 }
