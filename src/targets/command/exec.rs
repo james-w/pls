@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use log::{debug, info};
+use validator::Validate;
 
 use crate::cleanup::CleanupManager;
 use crate::commands::{run_command, spawn_command_with_pidfile, stop_using_pidfile};
@@ -12,12 +13,15 @@ use crate::outputs::OutputsManager;
 use crate::target::create_metadata_dir;
 use crate::target::{CommandInfo, Runnable, Startable, TargetInfo};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Validate)]
 pub struct ExecCommand {
+    #[validate(length(min = 1))]
     pub command: String,
     pub default_args: Option<String>,
 
+    #[validate(nested)]
     pub target_info: TargetInfo,
+    #[validate(nested)]
     pub command_info: CommandInfo,
 }
 

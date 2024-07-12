@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use log::{debug, info};
+use validator::Validate;
 
 use crate::cleanup::CleanupManager;
 use crate::commands::{run_command, spawn_command_with_pidfile, stop_using_pidfile};
@@ -14,18 +15,26 @@ use crate::rand::rand_string;
 use crate::shell::{escape_and_prepend, escape_and_prepend_vec, escape_string};
 use crate::target::{create_metadata_dir, CommandInfo, Runnable, Startable, TargetInfo};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Validate)]
 pub struct ContainerCommand {
+    #[validate(length(min = 1, message = "image must not be empty"))]
     pub image: String,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Vec<String>,
+    #[validate(length(min = 1))]
     pub command: Option<String>,
+    #[validate(custom(function = "crate::validate::keys_and_values_non_empty_strings"))]
     pub mount: HashMap<String, String>,
+    #[validate(length(min = 1))]
     pub workdir: Option<String>,
+    #[validate(length(min = 1))]
     pub network: Option<String>,
     pub create_network: bool,
     pub default_args: Option<String>,
 
+    #[validate(nested)]
     pub target_info: TargetInfo,
+    #[validate(nested)]
     pub command_info: CommandInfo,
 }
 

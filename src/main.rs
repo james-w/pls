@@ -20,13 +20,17 @@ mod rand;
 mod shell;
 mod target;
 mod targets;
+mod validate;
 
-use cleanup::CleanupManager;
-use cmd::{Args, Execute};
+pub use cleanup::CleanupManager;
+pub use cmd::{Args, Execute};
 use config::{find_config_file, Config};
 use context::Context;
 
-fn run(args: Args, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
+pub fn run(args: Args, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()> {
+    if let Some(directory) = args.directory {
+        std::env::set_current_dir(directory)?;
+    }
     let config_path =
         find_config_file().expect("Could not find config file in this directory or any parent");
     let config = Config::load_and_validate(&config_path)?;
@@ -72,7 +76,7 @@ fn start_cleanup_thread(cleanup_manager: Arc<Mutex<CleanupManager>>, running: Ar
     });
 }
 
-fn main() {
+pub fn main() {
     let info_logger = env_logger::builder()
         .format(|buf, record| writeln!(buf, "{}", record.args()))
         .filter_level(log::LevelFilter::Info)

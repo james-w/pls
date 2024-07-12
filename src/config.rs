@@ -4,59 +4,74 @@ use std::path::PathBuf;
 use anyhow::Result;
 use log::debug;
 use serde::Deserialize;
+use validator::Validate;
 
 use crate::context::{
     resolve_target_names_in, resolve_target_names_in_map, resolve_target_names_in_vec,
 };
 use crate::name::FullyQualifiedName;
 
-#[derive(Deserialize, Clone, Default, Debug)]
+#[derive(Deserialize, Clone, Default, Debug, Validate)]
 pub struct Config {
+    #[validate(custom(function = "crate::validate::keys_and_values_non_empty_strings"))]
     pub globals: Option<HashMap<String, String>>,
 
+    #[validate(nested)]
     pub command: Option<Command>,
+    #[validate(nested)]
     pub artifact: Option<Artifact>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct Artifact {
     //pub command: Option<HashMap<String, CommandArtifact>>,
+    #[validate(nested)]
     pub container_image: Option<HashMap<String, ContainerBuild>>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct TargetInfo {
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub requires: Option<Vec<String>>,
+    #[validate(length(min = 1, message="Name must not be empty"))]
     pub extends: Option<String>,
+    #[validate(custom(function = "crate::validate::keys_non_empty_strings"))]
     pub variables: Option<HashMap<String, String>>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct CommandInfo {
     pub daemon: Option<bool>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ArtifactInfo {
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub updates_paths: Option<Vec<String>>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub if_files_changed: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct Command {
+    #[validate(nested)]
     pub exec: Option<HashMap<String, ExecCommand>>,
+    #[validate(nested)]
     pub container: Option<HashMap<String, ContainerCommand>>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ExecCommand {
+    #[validate(length(min = 1, message="Command must not be empty"))]
     pub command: Option<String>,
     pub default_args: Option<String>,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub target_info: TargetInfo,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub command_info: CommandInfo,
 }
 
@@ -72,23 +87,33 @@ impl ExecCommand {
     pub fn is_artifact(&self) -> bool {
         false
     }
+
+    // TODO: resolved target names in fields
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ContainerCommand {
+    #[validate(length(min = 1, message="image must not be empty"))]
     pub image: Option<String>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message="command must not be empty"))]
     pub command: Option<String>,
+    #[validate(custom(function = "crate::validate::keys_and_values_non_empty_strings"))]
     pub mount: Option<HashMap<String, String>>,
+    #[validate(length(min = 1, message="workdir must not be empty"))]
     pub workdir: Option<String>,
+    #[validate(length(min = 1, message="network must not be empty"))]
     pub network: Option<String>,
     pub create_network: Option<bool>,
     pub default_args: Option<String>,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub target_info: TargetInfo,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub command_info: CommandInfo,
 }
 
@@ -150,15 +175,19 @@ impl ContainerCommand {
     }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ContainerBuild {
+    #[validate(length(min = 1, message="context must not be empty"))]
     pub context: Option<String>,
+    #[validate(length(min = 1, message="tag must not be empty"))]
     pub tag: Option<String>,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub artifact_info: ArtifactInfo,
 
     #[serde(flatten)]
+    #[validate(nested)]
     pub target_info: TargetInfo,
 }
 
@@ -174,6 +203,8 @@ impl ContainerBuild {
     pub fn is_artifact(&self) -> bool {
         true
     }
+
+    // TODO: resolved target names in fields
 }
 
 pub const CONFIG_FILE_NAME: &str = "taskrunner.toml";
@@ -193,10 +224,6 @@ pub fn find_config_file() -> Option<std::path::PathBuf> {
 }
 
 impl Config {
-    pub fn validate(&self) -> Result<()> {
-        Ok(())
-    }
-
     pub fn load_and_validate(config_path: &PathBuf) -> Result<Self> {
         let config_str = std::fs::read_to_string(config_path)?;
         let config: Config = toml::from_str(config_str.as_str())?;

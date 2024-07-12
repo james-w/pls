@@ -31,6 +31,9 @@ pub struct Args {
 
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    #[arg(short = 'C', long)]
+    pub directory: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]

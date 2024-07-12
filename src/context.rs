@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use log::debug;
+use validator::Validate;
 
 use crate::{
     config::{
@@ -360,15 +361,15 @@ fn resolve_extends(
                     .as_ref()
                     .map::<Result<_>, _>(|b| b.artifact()?.container_image())
                     .transpose()?;
-                Ok(Target::Artifact(Artifact::ContainerImage(
-                    ContainerArtifact::from_config(target_info, artifact_info, command, base),
-                )))
+                let artifact = ContainerArtifact::from_config(target_info, artifact_info, command, base);
+                artifact.validate()?;
+                Ok(Target::Artifact(Artifact::ContainerImage(artifact)))
             }
             _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
         }
     } else {
         let command_info = command_info_from_config(
-            name,
+            name.clone(),
             command.command_info().expect("{} doesn't have config_info"),
             base.as_ref()
                 .map(|b| b.command().map(|c| c.command_info()))
@@ -380,26 +381,28 @@ fn resolve_extends(
                     .as_ref()
                     .map::<Result<_>, _>(|b| b.command()?.exec())
                     .transpose()?;
-                Ok(Target::Command(Command::Exec(ExecCommand::from_config(
+                let exec = ExecCommand::from_config(
                     target_info,
                     command_info,
                     command,
                     base,
-                ))))
+                );
+                exec.validate()?;
+                Ok(Target::Command(Command::Exec(exec)))
             }
             ConfigWrapper::Container(command) => {
                 let base = base
                     .as_ref()
                     .map::<Result<_>, _>(|b| b.command()?.container())
                     .transpose()?;
-                Ok(Target::Command(Command::Container(
-                    ContainerCommand::from_config(
-                        target_info,
-                        command_info,
-                        &command.with_resolved_targets(name_map)?,
-                        base,
-                    ),
-                )))
+                let container = ContainerCommand::from_config(
+                    target_info,
+                    command_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
+                container.validate().map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
+                Ok(Target::Command(Command::Container(container)))
             }
             _ => panic!("Unknown command type, got <{}>", command.type_tag()),
         }

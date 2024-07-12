@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use log::{debug, info, warn};
+use validator::Validate;
 
 use crate::cleanup::CleanupManager;
 use crate::commands::build_command;
@@ -12,12 +13,16 @@ use crate::default::default_to;
 use crate::outputs::OutputsManager;
 use crate::target::{ArtifactInfo, Buildable, TargetInfo};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Validate)]
 pub struct ContainerArtifact {
+    #[validate(length(min = 1))]
     pub context: String,
+    #[validate(length(min = 1))]
     pub tag: String,
 
+    #[validate(nested)]
     pub artifact_info: ArtifactInfo,
+    #[validate(nested)]
     pub target_info: TargetInfo,
 }
 

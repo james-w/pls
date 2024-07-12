@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use glob::glob;
 use log::{debug, info, warn};
+use validator::Validate;
 
 use crate::cleanup::CleanupManager;
 use crate::context::Context;
@@ -19,19 +20,19 @@ pub enum Target {
     Command(Command),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Validate)]
 pub struct TargetInfo {
     pub name: FullyQualifiedName,
     pub requires: Vec<FullyQualifiedName>,
     pub variables: HashMap<String, String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Validate)]
 pub struct CommandInfo {
     pub daemon: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Validate)]
 pub struct ArtifactInfo {
     pub updates_paths: Option<Vec<String>>,
     pub if_files_changed: Option<Vec<String>>,
