@@ -36,15 +36,40 @@ pub struct Artifact {
 pub struct TargetInfo {
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub requires: Option<Vec<String>>,
-    #[validate(length(min = 1, message="Name must not be empty"))]
+    #[validate(length(min = 1, message = "Name must not be empty"))]
     pub extends: Option<String>,
     #[validate(custom(function = "crate::validate::keys_non_empty_strings"))]
     pub variables: Option<HashMap<String, String>>,
 }
 
+impl TargetInfo {
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.variables = self
+            .variables
+            .as_ref()
+            .map(|i| resolve_target_names_in_map(i, name_map))
+            .transpose()?;
+        Ok(new)
+    }
+}
+
 #[derive(Deserialize, Clone, Debug, Validate)]
 pub struct CommandInfo {
     pub daemon: Option<bool>,
+}
+
+impl CommandInfo {
+    pub fn with_resolved_targets(
+        &self,
+        _name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let new = self.clone();
+        Ok(new)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -53,6 +78,26 @@ pub struct ArtifactInfo {
     pub updates_paths: Option<Vec<String>>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub if_files_changed: Option<Vec<String>>,
+}
+
+impl ArtifactInfo {
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.updates_paths = self
+            .updates_paths
+            .as_ref()
+            .map(|i| resolve_target_names_in_vec(i, name_map))
+            .transpose()?;
+        new.if_files_changed = self
+            .if_files_changed
+            .as_ref()
+            .map(|i| resolve_target_names_in_vec(i, name_map))
+            .transpose()?;
+        Ok(new)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -65,7 +110,7 @@ pub struct Command {
 
 #[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ExecCommand {
-    #[validate(length(min = 1, message="Command must not be empty"))]
+    #[validate(length(min = 1, message = "Command must not be empty"))]
     pub command: Option<String>,
     pub default_args: Option<String>,
 
@@ -91,22 +136,38 @@ impl ExecCommand {
         false
     }
 
-    // TODO: resolved target names in fields
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.command = self
+            .command
+            .as_ref()
+            .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        new.default_args = self
+            .default_args
+            .as_ref()
+            .map(|e| resolve_target_names_in(e, name_map))
+            .transpose()?;
+        Ok(new)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ContainerCommand {
-    #[validate(length(min = 1, message="image must not be empty"))]
+    #[validate(length(min = 1, message = "image must not be empty"))]
     pub image: Option<String>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
-    #[validate(length(min = 1, message="command must not be empty"))]
+    #[validate(length(min = 1, message = "command must not be empty"))]
     pub command: Option<String>,
     #[validate(custom(function = "crate::validate::keys_and_values_non_empty_strings"))]
     pub mount: Option<HashMap<String, String>>,
-    #[validate(length(min = 1, message="workdir must not be empty"))]
+    #[validate(length(min = 1, message = "workdir must not be empty"))]
     pub workdir: Option<String>,
-    #[validate(length(min = 1, message="network must not be empty"))]
+    #[validate(length(min = 1, message = "network must not be empty"))]
     pub network: Option<String>,
     pub create_network: Option<bool>,
     pub default_args: Option<String>,
@@ -180,9 +241,9 @@ impl ContainerCommand {
 
 #[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ContainerBuild {
-    #[validate(length(min = 1, message="context must not be empty"))]
+    #[validate(length(min = 1, message = "context must not be empty"))]
     pub context: Option<String>,
-    #[validate(length(min = 1, message="tag must not be empty"))]
+    #[validate(length(min = 1, message = "tag must not be empty"))]
     pub tag: Option<String>,
 
     #[serde(flatten)]
@@ -207,12 +268,28 @@ impl ContainerBuild {
         true
     }
 
-    // TODO: resolved target names in fields
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.context = self
+            .context
+            .as_ref()
+            .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        new.tag = self
+            .tag
+            .as_ref()
+            .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        Ok(new)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
 pub struct ExecArtifact {
-    #[validate(length(min = 1, message="Command must not be empty"))]
+    #[validate(length(min = 1, message = "Command must not be empty"))]
     pub command: Option<String>,
 
     #[serde(flatten)]
@@ -237,7 +314,18 @@ impl ExecArtifact {
         true
     }
 
-    // TODO: resolved target names in fields
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.command = self
+            .command
+            .as_ref()
+            .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        Ok(new)
+    }
 }
 
 pub const CONFIG_FILE_NAME: &str = "taskrunner.toml";

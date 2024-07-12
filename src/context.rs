@@ -8,14 +8,15 @@ use crate::{
     config::{
         ArtifactInfo as ConfigArtifactInfo, CommandInfo as ConfigCommandInfo, Config,
         ContainerBuild as ConfigContainerBuild, ContainerCommand as ConfigContainerCommand,
-        ExecCommand as ConfigExecCommand, TargetInfo as ConfigTargetInfo, ExecArtifact as ConfigExecArtifact,
+        ExecArtifact as ConfigExecArtifact, ExecCommand as ConfigExecCommand,
+        TargetInfo as ConfigTargetInfo,
     },
     default::default_to,
     name::FullyQualifiedName,
     outputs::OutputsManager,
     shell::escape_string,
     target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
-    targets::{ContainerArtifact, ContainerCommand, ExecCommand, ExecArtifact},
+    targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand},
 };
 
 enum Variable {
@@ -340,16 +341,17 @@ fn resolve_extends(
     }?;
     let target_info = target_info_from_config(
         name.clone(),
-        command.target_info(),
+        &command.target_info().with_resolved_targets(name_map)?,
         name_map,
         base.as_ref().map(|b| b.target_info()),
     )?;
     if command.is_artifact() {
         let artifact_info = artifact_info_from_config(
             name,
-            command
+            &command
                 .artifact_info()
-                .expect("{} doesn't have artifact_info"),
+                .expect("{} doesn't have artifact_info")
+                .with_resolved_targets(name_map)?,
             name_map,
             base.as_ref()
                 .map(|b| b.artifact().map(|a| a.artifact_info()))
@@ -361,7 +363,12 @@ fn resolve_extends(
                     .as_ref()
                     .map::<Result<_>, _>(|b| b.artifact()?.container_image())
                     .transpose()?;
-                let artifact = ContainerArtifact::from_config(target_info, artifact_info, command, base);
+                let artifact = ContainerArtifact::from_config(
+                    target_info,
+                    artifact_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
                 artifact.validate()?;
                 Ok(Target::Artifact(Artifact::ContainerImage(artifact)))
             }
@@ -370,7 +377,12 @@ fn resolve_extends(
                     .as_ref()
                     .map::<Result<_>, _>(|b| b.artifact()?.exec())
                     .transpose()?;
-                let artifact = ExecArtifact::from_config(target_info, artifact_info, command, base);
+                let artifact = ExecArtifact::from_config(
+                    target_info,
+                    artifact_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
                 artifact.validate()?;
                 Ok(Target::Artifact(Artifact::Exec(artifact)))
             }
@@ -379,7 +391,10 @@ fn resolve_extends(
     } else {
         let command_info = command_info_from_config(
             name.clone(),
-            command.command_info().expect("{} doesn't have config_info"),
+            &command
+                .command_info()
+                .expect("{} doesn't have config_info")
+                .with_resolved_targets(name_map)?,
             base.as_ref()
                 .map(|b| b.command().map(|c| c.command_info()))
                 .transpose()?,
@@ -393,7 +408,7 @@ fn resolve_extends(
                 let exec = ExecCommand::from_config(
                     target_info,
                     command_info,
-                    command,
+                    &command.with_resolved_targets(name_map)?,
                     base,
                 );
                 exec.validate()?;
@@ -410,7 +425,9 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                container.validate().map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
+                container
+                    .validate()
+                    .map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
                 Ok(Target::Command(Command::Container(container)))
             }
             _ => panic!("Unknown command type, got <{}>", command.type_tag()),
@@ -484,7 +501,10 @@ impl ConfigWrapper {
 
 impl Context {
     pub fn from_config(config: &Config, path: String) -> Result<Context> {
-        let mut context = Context { config_path: path, ..Default::default() };
+        let mut context = Context {
+            config_path: path,
+            ..Default::default()
+        };
         if let Some(ref globals) = config.globals {
             context.globals = globals.clone();
         }

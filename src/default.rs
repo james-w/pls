@@ -3,10 +3,7 @@ pub(crate) fn _default_to<'a, T: Default + Clone, U>(
     base: Option<U>,
     f: fn(U) -> &'a T,
 ) -> T {
-    prefer
-        .clone()
-        .or(base.map(f).cloned())
-        .unwrap_or_default()
+    prefer.clone().or(base.map(f).cloned()).unwrap_or_default()
 }
 
 pub(crate) fn _default_to_with_default<T: Default + Clone, U>(
@@ -15,10 +12,7 @@ pub(crate) fn _default_to_with_default<T: Default + Clone, U>(
     f: fn(U) -> T,
     default: T,
 ) -> T {
-    prefer
-        .clone()
-        .or(base.map(f))
-        .unwrap_or(default)
+    prefer.clone().or(base.map(f)).unwrap_or(default)
 }
 
 pub(crate) fn _default_optional<'a, T: Clone, U>(

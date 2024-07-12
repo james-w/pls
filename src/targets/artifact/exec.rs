@@ -49,8 +49,11 @@ impl Buildable for ExecArtifact {
             "Building exec artifact for target <{}> with definition <{:?}>",
             self.target_info.name, self
         );
-        let cmd =
-            context.resolve_substitutions(self.command.as_str(), &self.target_info.name, outputs)?;
+        let cmd = context.resolve_substitutions(
+            self.command.as_str(),
+            &self.target_info.name,
+            outputs,
+        )?;
         debug!(
             "Building exec artifact for target <{}> with command <{}>",
             self.target_info.name, cmd
@@ -59,4 +62,3 @@ impl Buildable for ExecArtifact {
         run_command(&cmd)
     }
 }
-

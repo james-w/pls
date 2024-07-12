@@ -16,9 +16,7 @@ fn test_exec_command() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("hello");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq("hello").trim());
+    cmd.assert().success().stdout(predicate::eq("hello").trim());
 }
 
 #[test]
@@ -56,7 +54,5 @@ fn test_extends() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("world");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq("world").trim());
+    cmd.assert().success().stdout(predicate::eq("world").trim());
 }

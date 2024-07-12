@@ -9,7 +9,9 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn new() -> Self {
-        Self { workdir: assert_fs::TempDir::new().unwrap() }
+        Self {
+            workdir: assert_fs::TempDir::new().unwrap(),
+        }
     }
 
     pub fn workdir(&self) -> &std::path::Path {

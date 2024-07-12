@@ -12,7 +12,7 @@ use crate::cleanup::CleanupManager;
 use crate::context::Context;
 use crate::name::FullyQualifiedName;
 use crate::outputs::OutputsManager;
-use crate::targets::{ContainerArtifact, ContainerCommand, ExecCommand, ExecArtifact};
+use crate::targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand};
 
 #[derive(Debug, Clone)]
 pub enum Target {
@@ -290,7 +290,6 @@ impl Artifact {
             _ => Err(anyhow!("Expected an exec artifact")),
         }
     }
-
 }
 
 #[derive(Debug, Clone)]

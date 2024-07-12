@@ -18,17 +18,31 @@ fn test_build() {
 
     test_context.workdir.child("hello").touch().unwrap();
 
-    let starting_timestamp = test_context.workdir.child("hello").metadata().unwrap().modified().unwrap();
+    let starting_timestamp = test_context
+        .workdir
+        .child("hello")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("copy");
 
-    cmd.assert()
-        .success();
+    cmd.assert().success();
 
-    test_context.workdir.child("world").assert(predicate::path::exists());
+    test_context
+        .workdir
+        .child("world")
+        .assert(predicate::path::exists());
 
-    let ending_timestamp = test_context.workdir.child("world").metadata().unwrap().modified().unwrap();
+    let ending_timestamp = test_context
+        .workdir
+        .child("world")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     assert!(ending_timestamp > starting_timestamp);
 }
@@ -50,21 +64,40 @@ fn test_build_doesnt_rebuild() {
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("copy");
 
-    cmd.assert()
-        .success();
+    cmd.assert().success();
 
-    eprintln!("{}", String::from_utf8(cmd.output().unwrap().stderr).unwrap());
+    eprintln!(
+        "{}",
+        String::from_utf8(cmd.output().unwrap().stderr).unwrap()
+    );
 
-    test_context.workdir.child("world").assert(predicate::path::exists());
+    test_context
+        .workdir
+        .child("world")
+        .assert(predicate::path::exists());
 
-    let middle_timestamp = test_context.workdir.child("world").metadata().unwrap().modified().unwrap();
+    let middle_timestamp = test_context
+        .workdir
+        .child("world")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
-    cmd.assert()
-        .success();
+    cmd.assert().success();
 
-    eprintln!("{}", String::from_utf8(cmd.output().unwrap().stderr).unwrap());
+    eprintln!(
+        "{}",
+        String::from_utf8(cmd.output().unwrap().stderr).unwrap()
+    );
 
-    let ending_timestamp = test_context.workdir.child("world").metadata().unwrap().modified().unwrap();
+    let ending_timestamp = test_context
+        .workdir
+        .child("world")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     assert_eq!(ending_timestamp, middle_timestamp);
 }
@@ -86,23 +119,42 @@ fn test_build_rebuilds_if_file_changes() {
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("copy");
 
-    cmd.assert()
-        .success();
+    cmd.assert().success();
 
-    eprintln!("{}", String::from_utf8(cmd.output().unwrap().stderr).unwrap());
+    eprintln!(
+        "{}",
+        String::from_utf8(cmd.output().unwrap().stderr).unwrap()
+    );
 
-    test_context.workdir.child("world").assert(predicate::path::exists());
+    test_context
+        .workdir
+        .child("world")
+        .assert(predicate::path::exists());
 
-    let middle_timestamp = test_context.workdir.child("world").metadata().unwrap().modified().unwrap();
+    let middle_timestamp = test_context
+        .workdir
+        .child("world")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     test_context.workdir.child("hello").touch().unwrap();
 
-    cmd.assert()
-        .success();
+    cmd.assert().success();
 
-    eprintln!("{}", String::from_utf8(cmd.output().unwrap().stderr).unwrap());
+    eprintln!(
+        "{}",
+        String::from_utf8(cmd.output().unwrap().stderr).unwrap()
+    );
 
-    let ending_timestamp = test_context.workdir.child("world").metadata().unwrap().modified().unwrap();
+    let ending_timestamp = test_context
+        .workdir
+        .child("world")
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     assert!(ending_timestamp > middle_timestamp);
 }
