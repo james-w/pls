@@ -56,3 +56,20 @@ fn test_extends() {
 
     cmd.assert().success().stdout(predicate::eq("world").trim());
 }
+
+#[test]
+fn test_env() {
+    let config_src = r#"
+        [command.exec.env]
+        command = "env"
+        env = ["HELLO=world"]
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("env");
+
+    cmd.assert().success().stdout(predicate::str::contains("HELLO=world").trim());
+}

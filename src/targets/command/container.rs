@@ -155,7 +155,7 @@ impl Startable for ContainerCommand {
         for pre_command in command.pre_commands.iter() {
             run_command(pre_command.as_str())?;
         }
-        spawn_command_with_pidfile(command.command.as_str(), &pid_path, &log_path, log_start)?;
+        spawn_command_with_pidfile(command.command.as_str(), &[], &pid_path, &log_path, log_start)?;
         // TODO: post_stop_commands
         outputs.store_output(self.target_info.name.clone(), "name", command.name.as_str());
         if let Some(network) = command.network {

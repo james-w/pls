@@ -5,7 +5,7 @@ use log::{debug, info};
 use validator::Validate;
 
 use crate::cleanup::CleanupManager;
-use crate::commands::{run_command, spawn_command_with_pidfile, stop_using_pidfile};
+use crate::commands::{run_command_with_env, spawn_command_with_pidfile, stop_using_pidfile};
 use crate::config::ExecCommand as ConfigExecCommand;
 use crate::context::Context;
 use crate::default::{default_optional, default_to};
@@ -18,6 +18,8 @@ pub struct ExecCommand {
     #[validate(length(min = 1))]
     pub command: String,
     pub default_args: Option<String>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Vec<String>,
 
     #[validate(nested)]
     pub target_info: TargetInfo,
@@ -32,11 +34,17 @@ impl ExecCommand {
         defn: &ConfigExecCommand,
         base: Option<&Self>,
     ) -> Self {
+        let mut env = vec![];
+        if let Some(base) = base {
+            env.extend(base.env.clone());
+        }
+        env.extend(defn.env.clone().unwrap_or_default());
         ExecCommand {
             command: default_to!(defn, base, command),
             default_args: default_optional!(defn, base, default_args),
             target_info,
             command_info,
+            env,
         }
     }
 }
@@ -74,13 +82,14 @@ impl Runnable for ExecCommand {
     ) -> Result<()> {
         // TODO: default_args
         let command = self.resolve_command(context, outputs, args)?;
+        let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
         debug!(
             "Running target <{}> with command <{}>",
             self.target_info.name, command
         );
         info!("[{}] Running {}", self.target_info.name, command);
         // TODO: cwd
-        run_command(command.as_str())
+        run_command_with_env(command.as_str(), env.as_slice())
     }
 }
 
@@ -98,10 +107,11 @@ impl Startable for ExecCommand {
         let log_path = taskrunner_dir.join("log");
         // TODO: default_args
         let cmd = self.resolve_command(context, outputs, args)?;
+        let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
         let log_start = || {
             info!("[{}] Starting {}", self.target_info.name, cmd);
         };
-        spawn_command_with_pidfile(cmd.as_str(), &pid_path, &log_path, log_start)
+        spawn_command_with_pidfile(cmd.as_str(), env.as_slice(), &pid_path, &log_path, log_start)
     }
 
     fn stop(

@@ -829,6 +829,7 @@ mod tests {
             command_info: CommandInfo { daemon: false },
             command: "echo {foo.output.key}".to_string(),
             default_args: None,
+            env: vec![],
         };
         context
             .targets

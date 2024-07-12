@@ -11,7 +11,7 @@
 * :heavy_check_mark: Templates to be able to define one target, and then run it multiple ways?
 * :heavy_check_mark: Arguments to allow passing extra args from cli
 * :heavy_check_mark: Defaults for those arguments
-* :arrow_forward: Env variables
+* :heavy_check_mark: Env variables
 * :heavy_check_mark: Return values, can be used by dependants, e.g. container name, port
 * :soon: Status for daemons
 * :soon: Logs for daemons

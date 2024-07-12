@@ -7,6 +7,10 @@ use log::debug;
 use nix::errno::Errno;
 
 pub fn build_command(command: &str) -> Result<std::process::Command> {
+    build_command_with_env(command, &[])
+}
+
+pub fn build_command_with_env(command: &str, env: &[String]) -> Result<std::process::Command> {
     let mut split = shlex::Shlex::new(command);
     debug!(
         "Split command <{}> into parts: <{}>",
@@ -15,7 +19,16 @@ pub fn build_command(command: &str) -> Result<std::process::Command> {
     );
     split = shlex::Shlex::new(command);
     if let Some(cmd) = split.next() {
-        let cmd = std::process::Command::new(cmd);
+        let mut cmd = std::process::Command::new(cmd);
+        for env_v in env {
+            let split = env_v.split_once('=');
+            if let Some((key, val)) = split {
+                cmd.env(key, val);
+            } else {
+                debug!("Setting env var <{}> to <>", env_v);
+                cmd.env(env_v, "");
+            }
+        }
         Ok(split.fold(cmd, |mut cmd, arg| {
             cmd.arg(arg);
             cmd
@@ -80,7 +93,11 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
 }
 
 pub fn run_command(cmd: &str) -> Result<()> {
-    let mut cmd = build_command(cmd)?;
+    run_command_with_env(cmd, &[])
+}
+
+pub fn run_command_with_env(cmd: &str, env: &[String]) -> Result<()> {
+    let mut cmd = build_command_with_env(cmd, env)?;
     let status = cmd.status()?;
     if !status.success() {
         if let Some(code) = status.code() {
@@ -116,6 +133,7 @@ pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupMan
 
 pub fn spawn_command_with_pidfile(
     cmd: &str,
+    env: &[String],
     pid_path: &std::path::PathBuf,
     log_path: &std::path::PathBuf,
     on_start: impl Fn(),
@@ -140,7 +158,7 @@ pub fn spawn_command_with_pidfile(
     debug!("Starting daemon with command <{}>", cmd);
     on_start();
     // TODO: cwd
-    let mut cmd = build_command(cmd)?;
+    let mut cmd = build_command_with_env(cmd, env)?;
     let child = cmd
         .stdout(log.try_clone()?)
         .stderr(log.try_clone()?)

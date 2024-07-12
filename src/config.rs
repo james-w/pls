@@ -114,6 +114,8 @@ pub struct ExecCommand {
     #[validate(length(min = 1, message = "Command must not be empty"))]
     pub command: Option<String>,
     pub default_args: Option<String>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
 
     #[serde(flatten)]
     #[validate(nested)]
@@ -151,6 +153,11 @@ impl ExecCommand {
             .default_args
             .as_ref()
             .map(|e| resolve_target_names_in(e, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
             .transpose()?;
         Ok(new)
     }
@@ -292,6 +299,8 @@ impl ContainerBuild {
 pub struct ExecArtifact {
     #[validate(length(min = 1, message = "Command must not be empty"))]
     pub command: Option<String>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
 
     #[serde(flatten)]
     #[validate(nested)]
@@ -324,6 +333,11 @@ impl ExecArtifact {
             .command
             .as_ref()
             .map(|i| resolve_target_names_in(i, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
             .transpose()?;
         Ok(new)
     }
