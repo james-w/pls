@@ -616,18 +616,18 @@ fn find_required(target: &TargetInfo, context: &Context) -> Result<Vec<Target>> 
 }
 
 fn metadata_path(name: &str) -> Result<std::path::PathBuf> {
-    Ok(std::env::current_dir()?.join(".taskrunner").join(name))
+    Ok(std::env::current_dir()?.join(".pls").join(name))
 }
 
 pub fn create_metadata_dir(name: &str) -> Result<std::path::PathBuf> {
-    let taskrunner_dir = metadata_path(name)?;
+    let config_dir = metadata_path(name)?;
     debug!(
         "Creating metadata dir for target <{}> at <{}>",
         name,
-        taskrunner_dir.display()
+        config_dir.display()
     );
-    std::fs::create_dir_all(&taskrunner_dir)?;
-    Ok(taskrunner_dir)
+    std::fs::create_dir_all(&config_dir)?;
+    Ok(config_dir)
 }
 
 fn last_run_path(target: &TargetInfo) -> Result<std::path::PathBuf> {

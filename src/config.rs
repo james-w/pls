@@ -343,7 +343,7 @@ impl ExecArtifact {
     }
 }
 
-pub const CONFIG_FILE_NAME: &str = "taskrunner.toml";
+pub const CONFIG_FILE_NAME: &str = "pls.toml";
 
 pub fn find_config_file() -> Option<std::path::PathBuf> {
     let mut config_dir = std::env::current_dir().unwrap();

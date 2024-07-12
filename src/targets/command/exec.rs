@@ -101,10 +101,10 @@ impl Startable for ExecCommand {
         _cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
-        let taskrunner_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
 
-        let pid_path = taskrunner_dir.join("pid");
-        let log_path = taskrunner_dir.join("log");
+        let pid_path = config_dir.join("pid");
+        let log_path = config_dir.join("log");
         // TODO: default_args
         let cmd = self.resolve_command(context, outputs, args)?;
         let env = self.env.iter().map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs)).collect::<Result<Vec<String>>>()?;
@@ -120,11 +120,9 @@ impl Startable for ExecCommand {
         _outputs: &mut OutputsManager,
         _cleanup_manager: Arc<Mutex<CleanupManager>>,
     ) -> Result<()> {
-        let taskrunner_dir = std::env::current_dir()?
-            .join(".taskrunner")
-            .join(self.target_info.name.to_string().as_str());
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
 
-        let pid_path = taskrunner_dir.join("pid");
+        let pid_path = config_dir.join("pid");
         debug!(
             "Searching for pid file for target <{}> at <{}>",
             self.target_info.name,

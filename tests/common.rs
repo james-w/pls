@@ -19,7 +19,7 @@ impl TestContext {
     }
 
     pub fn write_config(&self, config_src: &str) {
-        let config_path = self.workdir.child("taskrunner.toml");
+        let config_path = self.workdir.child("pls.toml");
         config_path.write_str(config_src).unwrap();
     }
 
@@ -28,7 +28,7 @@ impl TestContext {
     }
 
     pub fn get_command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("taskrunner").unwrap();
+        let mut cmd = Command::cargo_bin("pls").unwrap();
         cmd.arg("--debug");
         self.add_context(&mut cmd);
         cmd

@@ -141,9 +141,9 @@ impl Startable for ContainerCommand {
             self.target_info.name, self.command
         );
 
-        let taskrunner_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
-        let pid_path = taskrunner_dir.join("pid");
-        let log_path = taskrunner_dir.join("log");
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+        let pid_path = config_dir.join("pid");
+        let log_path = config_dir.join("log");
         let image_name =
             context.resolve_substitutions(self.image.as_str(), &self.target_info.name, outputs)?;
         let log_start = || {
@@ -170,11 +170,9 @@ impl Startable for ContainerCommand {
         _outputs: &mut OutputsManager,
         _cleanup_manager: Arc<Mutex<CleanupManager>>,
     ) -> Result<()> {
-        let taskrunner_dir = std::env::current_dir()?
-            .join(".taskrunner")
-            .join(self.target_info.name.to_string().as_str());
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
 
-        let pid_path = taskrunner_dir.join("pid");
+        let pid_path = config_dir.join("pid");
         debug!(
             "Searching for pid file for target <{}> at <{}>",
             self.target_info.name,

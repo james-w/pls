@@ -1,4 +1,6 @@
-# Task Runner
+# `pls` - A Task Runner
+
+`pls` runs tasks; kind of like Make, but more modern.
 
 ## Features
 
@@ -41,6 +43,96 @@
 ### CI Integration
 
 * :fast_forward: Some way to flatten out to run the same commands in CI?
+
+## Usage
+
+Usage is driven by a file called `pls.toml`. Create this at the root of your project
+(next to your `.git` directory), add add it to version control.
+
+### Commands
+
+The file describes a series of commands that you can run, like this:
+
+```toml
+[command.exec.hello]
+command = "echo hello world"
+```
+
+This defines a command called `hello`, so we can run it with:
+
+```console
+$ pls run hello
+[command.exec.hello] Running echo hello world
+hello world
+```
+
+You can define a number of commands that do different things, and with different
+arguments depending on your needs.
+
+```toml
+[command.exec.hello]
+command = "echo hello world"
+
+[command.exec.goodbye]
+command = "echo goodbye"
+```
+
+#### Container commands
+
+You can also specify commands that run inside containers using `podman`.
+
+```toml
+[command.container.hello]
+image = 'docker.io/alpine:latest
+command = echo hello
+```
+
+They can then be run in exactly the same way.
+
+```console
+$ pls run hello
+[command.exec.hello] Running container using docker.io/alpine:latest
+hello
+```
+
+This allows you to rely on specific versions of tools, or other cases
+where using a container is preferable.
+
+#### Arguments
+
+#### Dependencies with `requires`
+
+You can specify that one command needs to run after another by using
+the `requires` configuration option.
+
+```toml
+[command.container.one]
+image = 'docker.io/alpine:latest
+command = echo one
+
+[command.exec.two]
+command = echo two
+```
+
+#### Reuse with `extends`
+
+#### Variables
+
+#### Long-running commands with daemons
+
+#### Outputs
+
+### Artifacts
+
+#### Container Images
+
+#### Timestamp comparisons
+
+#### Last-run comparisons
+
+#### Forcing a rebuild to happen
+
+### Descriptions
 
 ## Detecting changes
 
@@ -123,8 +215,8 @@ uses = "cargo_with_db"
 args = "run"
 ```
 
-`taskrunner run <COMMAND> [ARGS...]` to run a command or build an artifact
+`pls run <COMMAND> [ARGS...]` to run a command or build an artifact
 (with disambiguation). Provides the way to force a build to happen.
 
-`taskrunner build <ARTIFACT>` to build an artifact, taking in to account
+`pls build <ARTIFACT>` to build an artifact, taking in to account
 whether deps have changed etc.
