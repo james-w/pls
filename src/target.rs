@@ -25,6 +25,7 @@ pub struct TargetInfo {
     pub name: FullyQualifiedName,
     pub requires: Vec<FullyQualifiedName>,
     pub variables: HashMap<String, String>,
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Debug, Validate)]

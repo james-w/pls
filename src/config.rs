@@ -40,6 +40,7 @@ pub struct TargetInfo {
     pub extends: Option<String>,
     #[validate(custom(function = "crate::validate::keys_non_empty_strings"))]
     pub variables: Option<HashMap<String, String>>,
+    pub description: Option<String>,
 }
 
 impl TargetInfo {

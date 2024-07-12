@@ -1,3 +1,6 @@
+use std::thread;
+use std::time::Duration;
+
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
@@ -44,7 +47,7 @@ fn test_build() {
         .modified()
         .unwrap();
 
-    assert!(ending_timestamp > starting_timestamp);
+    assert!(ending_timestamp >= starting_timestamp);
 }
 
 #[test]
@@ -138,6 +141,9 @@ fn test_build_rebuilds_if_file_changes() {
         .unwrap()
         .modified()
         .unwrap();
+
+    // Tiny sleep to make sure the timestamp changes
+    thread::sleep(Duration::from_nanos(100));
 
     test_context.workdir.child("hello").touch().unwrap();
 

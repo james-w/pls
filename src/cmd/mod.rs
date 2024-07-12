@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 
 mod build;
 mod execute;
+mod list;
 mod run;
 mod start;
 mod stop;
@@ -13,6 +14,7 @@ use crate::cleanup::CleanupManager;
 use crate::context::Context;
 use build::BuildCommand;
 pub use execute::Execute;
+use list::ListCommand;
 use run::RunCommand;
 use start::StartCommand;
 use stop::StopCommand;
@@ -49,6 +51,10 @@ pub enum Commands {
 
     /// Build an artifact
     Build(BuildCommand),
+
+    /// List available targets
+    List(ListCommand),
+
     // TODO: status, logs
 }
 
@@ -59,6 +65,7 @@ impl Execute for Commands {
             Commands::Start(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Stop(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Build(cmd) => cmd.execute(context, cleanup_manager),
+            Commands::List(cmd) => cmd.execute(context, cleanup_manager),
         }
     }
 }

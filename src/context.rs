@@ -250,6 +250,7 @@ fn target_info_from_config(
         name,
         requires,
         variables,
+        description: config.description.clone(),
     })
 }
 
@@ -823,6 +824,7 @@ mod tests {
                 name: qualified_name.clone(),
                 requires: vec![],
                 variables: HashMap::new(),
+                description: None,
             },
             command_info: CommandInfo { daemon: false },
             command: "echo {foo.output.key}".to_string(),
@@ -1038,6 +1040,7 @@ mod tests {
             requires: Some(vec!["a".to_string(), "b".to_string()]),
             variables: Some(HashMap::new()),
             extends: None,
+            description: Some("description".to_string()),
         };
         let mut name_map = HashMap::new();
         name_map.insert(
@@ -1067,6 +1070,7 @@ mod tests {
         assert_eq!(target_info.name.name, "name");
         assert_eq!(target_info.requires.len(), 2);
         assert_eq!(target_info.variables.len(), 0);
+        assert_eq!(target_info.description, Some("description".to_string()));
     }
 
     #[test]

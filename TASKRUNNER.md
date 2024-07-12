@@ -15,8 +15,8 @@
 * :heavy_check_mark: Return values, can be used by dependants, e.g. container name, port
 * :soon: Status for daemons
 * :soon: Logs for daemons
-* :soon: List targets
-* :soon: Descriptions
+* :heavy_check_mark: List targets
+* :heavy_check_mark: Descriptions
 * :soon: Groups/tags
 
 * :heavy_check_mark: Define artifacts to build, that are only rebuilt if needed
