@@ -143,7 +143,7 @@ fn test_build_rebuilds_if_file_changes() {
         .unwrap();
 
     // Tiny sleep to make sure the timestamp changes
-    thread::sleep(Duration::from_nanos(100));
+    thread::sleep(Duration::from_nanos(500));
 
     test_context.workdir.child("hello").touch().unwrap();
 
