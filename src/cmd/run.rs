@@ -27,25 +27,21 @@ impl Execute for RunCommand {
                 if let Some(runner) = runner {
                     runner.run(&context, &mut outputs, cleanup_manager, self.args.clone())
                 } else {
-                    Err(anyhow!(
-                        "Target <{}> is not runnable",
-                        self.name
-                    ))
+                    Err(anyhow!("Target <{}> is not runnable", self.name))
                 }
-            },
-            CommandLookupResult::NotFound => {
-                Err(anyhow!(
-                    "Target <{}> not found in config file <{}>",
-                    self.name,
-                    context.config_path
-                ))
-            },
-            CommandLookupResult::Duplicates(duplicates) => {
+            }
+            CommandLookupResult::NotFound => Err(anyhow!(
+                "Target <{}> not found in config file <{}>",
+                self.name,
+                context.config_path
+            )),
+            CommandLookupResult::Duplicates(ref mut duplicates) => {
+                duplicates.sort();
                 Err(anyhow!(
                     "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                     self.name, duplicates.join(", ")
                 ))
-            },
+            }
         }
     }
 }

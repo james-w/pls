@@ -225,6 +225,6 @@ fn test_error_when_ambiguous() {
     cmd.assert().failure();
 
     cmd.assert().stderr(predicate::str::contains(
-        "Target <copy> is ambiguous, possible values are <artifact.exec.copy, artifact.container_image.copy>",
+        "Target <copy> is ambiguous, possible values are <artifact.container_image.copy, artifact.exec.copy>",
     ));
 }

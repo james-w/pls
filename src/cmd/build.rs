@@ -29,20 +29,19 @@ impl Execute for BuildCommand {
                         self.artifact
                     ))
                 }
-            },
-            CommandLookupResult::NotFound => {
-                Err(anyhow!(
-                    "Target <{}> not found in config file <{}>",
-                    self.artifact,
-                    context.config_path
-                ))
-            },
-            CommandLookupResult::Duplicates(duplicates) => {
+            }
+            CommandLookupResult::NotFound => Err(anyhow!(
+                "Target <{}> not found in config file <{}>",
+                self.artifact,
+                context.config_path
+            )),
+            CommandLookupResult::Duplicates(ref mut duplicates) => {
+                duplicates.sort();
                 Err(anyhow!(
                     "Target <{}> is ambiguous, possible values are <{}>, please specify the command to run using one of those names",
                     self.artifact, duplicates.join(", ")
                 ))
-            },
+            }
         }
     }
 }
