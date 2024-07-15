@@ -8,6 +8,10 @@ jobs:
   cargo:
     timeout-minutes: 12
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      packages: read
+      contents: read
     steps:
     - uses: actions/checkout@v3
     - uses: actions-rs/toolchain@v1
@@ -20,11 +24,20 @@ jobs:
     - name: Setup cargo cache
       uses: Swatinem/rust-cache@v2
       continue-on-error: false
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
     - name: Run cargo fmt
       run: cargo fmt --check
     - name: Run tests
-      run: cargo test
-    - name: Check lint
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo llvm-cov --all-features --workspace --codecov --output-path lcov.info nextest
+    - name: Show coverage report
+      run: cargo llvm-cov report
+    - name: Check link
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all-targets --all-features -- -D warnings
     - name: Run cargo check
       run: cargo check
