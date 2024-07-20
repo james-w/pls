@@ -295,7 +295,7 @@ fn container_run_command(
     )
     .map_err(|e| anyhow!("Failed to escape network: {}", e))?;
     let cmd = format!(
-        "podman run --name {} --rm {} {} {} {} {} {}",
+        "podman run --name {} --rm -u 1000 --userns keep-id {} {} {} {} {} {}",
         escape_string(container_name)?,
         env_str,
         mount_str,

@@ -112,6 +112,45 @@ pub trait Targetable {
 pub enum Artifact {
     ContainerImage(ContainerArtifact),
     Exec(ExecArtifact),
+    #[cfg(test)]
+    Null(NullArtifact),
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct NullArtifact {
+    pub target_info: TargetInfo,
+    pub artifact_info: ArtifactInfo,
+}
+
+#[cfg(test)]
+impl NullArtifact {
+    pub fn new(name: FullyQualifiedName) -> Self {
+        Self {
+            target_info: TargetInfo {
+                name,
+                requires: vec![],
+                variables: HashMap::new(),
+                description: None,
+            },
+            artifact_info: ArtifactInfo {
+                if_files_changed: None,
+                updates_paths: None,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+impl Buildable for NullArtifact {
+    fn build(
+        &self,
+        _context: &Context,
+        _outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Artifact {
@@ -119,6 +158,8 @@ impl Artifact {
         match self {
             Self::ContainerImage(image) => &image.target_info,
             Self::Exec(exec) => &exec.target_info,
+            #[cfg(test)]
+            Self::Null(null) => &null.target_info,
         }
     }
 
@@ -126,6 +167,8 @@ impl Artifact {
         match self {
             Self::ContainerImage(image) => &image.artifact_info,
             Self::Exec(exec) => &exec.artifact_info,
+            #[cfg(test)]
+            Self::Null(null) => &null.artifact_info,
         }
     }
 
@@ -133,6 +176,8 @@ impl Artifact {
         match self {
             Self::ContainerImage(image) => image,
             Self::Exec(exec) => exec,
+            #[cfg(test)]
+            Self::Null(null) => null,
         }
     }
 }
@@ -160,6 +205,7 @@ impl Buildable for Artifact {
             outputs,
             &mut to_stop,
             cleanup_manager.clone(),
+            true,
             true,
         );
         // TODO: use cleanup manager to handle the to_stop stuff?
@@ -194,18 +240,21 @@ impl Artifact {
         _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         check_should_rerun: bool,
+        run_deps: bool,
     ) -> Result<()> {
         debug!(
             "Building target <{}>, with definition <{:?}>",
             self.target_info().name,
             self
         );
-        run_required(
-            self.target_info(),
-            context,
-            outputs,
-            cleanup_manager.clone(),
-        )?;
+        if run_deps {
+            run_required(
+                self.target_info(),
+                context,
+                outputs,
+                cleanup_manager.clone(),
+            )?;
+        }
         let resolved_requirements = find_required(self.target_info(), context)?;
         if check_should_rerun
             && !should_rerun(
@@ -252,6 +301,49 @@ impl Runnable for Artifact {
             &mut to_stop,
             cleanup_manager.clone(),
             false,
+            true,
+        );
+        // TODO: use cleanup manager to handle the to_stop stuff?
+        // Reverse the order that they were started
+        to_stop.reverse();
+        for target in to_stop.iter() {
+            // TODO: add in errors to result
+            if let Some(s) = target.as_startable() {
+                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
+                    warn!(
+                        "Error stopping target <{}>: {}",
+                        target.target_info().name,
+                        e
+                    );
+                }
+            } else {
+                panic!(
+                    "Supposed to stop <{}> but as_startable is None",
+                    target.target_info().name
+                );
+            }
+        }
+        result
+    }
+
+    fn run_no_deps(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        if !args.is_empty() {
+            return Err(anyhow!("Artifacts do not accept arguments"));
+        }
+        let mut to_stop: Vec<&Target> = vec![];
+        let result = self.build_target_inner(
+            context,
+            outputs,
+            &mut to_stop,
+            cleanup_manager.clone(),
+            false,
+            false,
         );
         // TODO: use cleanup manager to handle the to_stop stuff?
         // Reverse the order that they were started
@@ -295,8 +387,91 @@ impl Artifact {
 
 #[derive(Debug, Clone)]
 pub enum Command {
+    #[cfg(test)]
+    Null(NullCommand),
     Exec(ExecCommand),
     Container(ContainerCommand),
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct NullCommand {
+    pub target_info: TargetInfo,
+    pub command_info: CommandInfo,
+}
+
+#[cfg(test)]
+impl NullCommand {
+    pub fn new(name: FullyQualifiedName) -> Self {
+        Self {
+            target_info: TargetInfo {
+                name,
+                requires: vec![],
+                variables: HashMap::new(),
+                description: None,
+            },
+            command_info: CommandInfo { daemon: false },
+        }
+    }
+}
+
+#[cfg(test)]
+pub fn any_fully_qualified_name() -> FullyQualifiedName {
+    FullyQualifiedName {
+        tag: "test".into(),
+        name: "any".into(),
+    }
+}
+
+#[cfg(test)]
+pub fn any_target() -> Target {
+    Target::Command(Command::Null(NullCommand::new(any_fully_qualified_name())))
+}
+
+#[cfg(test)]
+pub fn any_artifact_target() -> Target {
+    Target::Artifact(Artifact::Null(
+        NullArtifact::new(any_fully_qualified_name()),
+    ))
+}
+
+#[cfg(test)]
+impl Runnable for NullCommand {
+    fn run(
+        &self,
+        _context: &Context,
+        _outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        _args: Vec<String>,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl Startable for NullCommand {
+    fn start(
+        &self,
+        _context: &Context,
+        _outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        _args: Vec<String>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn stop(
+        &self,
+        _context: &Context,
+        _outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn status(&self, _context: &Context, _outputs: &mut OutputsManager) -> Result<StatusResult> {
+        Ok(StatusResult::NotRunning())
+    }
 }
 
 impl Command {
@@ -304,6 +479,8 @@ impl Command {
         match self {
             Self::Exec(exec) => &exec.target_info,
             Self::Container(container) => &container.target_info,
+            #[cfg(test)]
+            Self::Null(null) => &null.target_info,
         }
     }
 
@@ -311,6 +488,8 @@ impl Command {
         match self {
             Self::Exec(exec) => &exec.command_info,
             Self::Container(container) => &container.command_info,
+            #[cfg(test)]
+            Self::Null(null) => &null.command_info,
         }
     }
 
@@ -318,6 +497,8 @@ impl Command {
         match self {
             Self::Exec(exec) => exec,
             Self::Container(container) => container,
+            #[cfg(test)]
+            Self::Null(null) => null,
         }
     }
 }
@@ -370,6 +551,8 @@ impl Runnable for Command {
         }
         result
     }
+
+    // TODO: run_no_deps
 }
 
 fn run_required(
@@ -379,6 +562,14 @@ fn run_required(
     cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<()> {
     let resolved_requirements = find_required(target_info, context)?;
+    debug!(
+        "Running required targets for target <{}>: {:?}",
+        target_info.name,
+        resolved_requirements
+            .iter()
+            .map(|t| t.target_info().name.clone())
+            .collect::<Vec<_>>()
+    );
     for required_target in resolved_requirements.clone().into_iter() {
         match (
             required_target.as_buildable(),
@@ -457,18 +648,21 @@ impl Command {
         _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
+        run_deps: bool,
     ) -> Result<()> {
         debug!(
             "Starting target <{}>, with definition <{:?}>",
             self.target_info().name,
             self
         );
-        run_required(
-            self.target_info(),
-            context,
-            outputs,
-            cleanup_manager.clone(),
-        )?;
+        if run_deps {
+            run_required(
+                self.target_info(),
+                context,
+                outputs,
+                cleanup_manager.clone(),
+            )?;
+        }
         self.inner_as_startable()
             .start(context, outputs, cleanup_manager, args)?;
         // TODO: last timestamp file
@@ -491,6 +685,46 @@ impl Startable for Command {
             &mut to_stop,
             cleanup_manager.clone(),
             args,
+            true,
+        );
+        // TODO: use cleanup manager to handle the to_stop stuff?
+        // Reverse the order that they were started
+        to_stop.reverse();
+        for target in to_stop.iter() {
+            // TODO: add in errors to result
+            if let Some(s) = target.as_startable() {
+                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
+                    warn!(
+                        "Error stopping target <{}>: {}",
+                        target.target_info().name,
+                        e
+                    );
+                }
+            } else {
+                panic!(
+                    "Supposed to stop <{}> but as_startable is None",
+                    target.target_info().name
+                );
+            }
+        }
+        result
+    }
+
+    fn start_no_deps(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        let mut to_stop: Vec<&Target> = vec![];
+        let result = self.start_target_inner(
+            context,
+            outputs,
+            &mut to_stop,
+            cleanup_manager.clone(),
+            args,
+            false,
         );
         // TODO: use cleanup manager to handle the to_stop stuff?
         // Reverse the order that they were started
@@ -557,6 +791,8 @@ impl Command {
         match self {
             Self::Exec(exec) => exec,
             Self::Container(container) => container,
+            #[cfg(test)]
+            Self::Null(null) => null,
         }
     }
 }
@@ -569,6 +805,16 @@ pub trait Runnable {
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()>;
+
+    fn run_no_deps(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        self.run(context, outputs, cleanup_manager, args)
+    }
 }
 
 pub enum StatusResult {
@@ -594,6 +840,16 @@ pub trait Startable {
         args: Vec<String>,
     ) -> Result<()>;
 
+    fn start_no_deps(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        self.start(context, outputs, cleanup_manager, args)
+    }
+
     fn stop(
         &self,
         context: &Context,
@@ -602,6 +858,28 @@ pub trait Startable {
     ) -> Result<()>;
 
     fn status(&self, context: &Context, outputs: &mut OutputsManager) -> Result<StatusResult>;
+
+    fn restart(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        self.stop(context, outputs, cleanup_manager.clone())?;
+        self.start(context, outputs, cleanup_manager, args)
+    }
+
+    fn restart_no_deps(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        self.stop(context, outputs, cleanup_manager.clone())?;
+        self.start_no_deps(context, outputs, cleanup_manager, args)
+    }
 }
 
 pub trait Buildable {

@@ -28,10 +28,10 @@
 
 ### Watcher
 
-* :fast_forward: Standard watcher functionality
+* :arrow_forward: Standard watcher functionality
 * :fast_forward: Daemon RPC
 * :fast_forward: Enable/disable certain triggers
-* :fast_forward: Ordering (same as dependencies?)
+* :arrow_forward: Ordering (same as dependencies?)
 
 ### UI
 
@@ -100,6 +100,22 @@ where using a container is preferable.
 
 #### Arguments
 
+A command can take arguments passed from the command line.
+
+```toml
+[command.exec.echo_something]
+command = echo {args}
+```
+
+```console
+$ pls run echo_something hello
+[command.exec.hello] Running echo hello
+hello
+```
+
+If you don't specify `{args}` in the command then they will be
+appended to the command.
+
 #### Dependencies with `requires`
 
 You can specify that one command needs to run after another by using
@@ -133,6 +149,8 @@ command = echo two
 #### Forcing a rebuild to happen
 
 ### Descriptions
+
+## Watch Mode
 
 ## Detecting changes
 
