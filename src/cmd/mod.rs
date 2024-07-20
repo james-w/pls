@@ -10,6 +10,7 @@ mod run;
 mod start;
 mod status;
 mod stop;
+mod watch;
 
 use crate::cleanup::CleanupManager;
 use crate::context::Context;
@@ -20,6 +21,7 @@ use run::RunCommand;
 use start::StartCommand;
 use status::StatusCommand;
 use stop::StopCommand;
+use watch::WatchCommand;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -59,6 +61,9 @@ pub enum Commands {
 
     /// Get the status of a daemon
     Status(StatusCommand),
+
+    /// Watch for changes and trigger targets in response
+    Watch(WatchCommand),
     // TODO: logs
 }
 
@@ -71,6 +76,7 @@ impl Execute for Commands {
             Commands::Build(cmd) => cmd.execute(context, cleanup_manager),
             Commands::List(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Status(cmd) => cmd.execute(context, cleanup_manager),
+            Commands::Watch(cmd) => cmd.execute(context, cleanup_manager),
         }
     }
 }

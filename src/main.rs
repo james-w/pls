@@ -21,6 +21,7 @@ mod shell;
 mod target;
 mod targets;
 mod validate;
+mod watch;
 
 pub use cleanup::CleanupManager;
 pub use cmd::{Args, Execute};

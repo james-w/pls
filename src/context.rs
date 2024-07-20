@@ -765,10 +765,6 @@ mod tests {
     use super::*;
     use crate::targets::command::exec::ExecCommand;
 
-    fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
-    }
-
     #[test]
     fn from_empty_config() {
         let config = Config::default();
@@ -795,7 +791,6 @@ mod tests {
 
     #[test]
     fn resolve_substitutions_with_variable() {
-        init();
         let mut context = Context::default();
         let outputs = OutputsManager::default();
         context
@@ -813,7 +808,6 @@ mod tests {
 
     #[test]
     fn resolve_substitutions_with_output() {
-        init();
         let mut context = Context::default();
         let mut outputs = OutputsManager::default();
         let qualified_name = FullyQualifiedName {
