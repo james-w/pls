@@ -532,6 +532,10 @@ impl Startable for Command {
         // TODO: last run file?
         Ok(())
     }
+
+    fn status(&self, context: &Context, outputs: &mut OutputsManager) -> Result<StatusResult> {
+        self.inner_as_startable().status(context, outputs)
+    }
 }
 
 impl Command {
@@ -567,6 +571,20 @@ pub trait Runnable {
     ) -> Result<()>;
 }
 
+pub enum StatusResult {
+    Running(String),
+    NotRunning(),
+}
+
+impl From<Option<String>> for StatusResult {
+    fn from(val: Option<String>) -> Self {
+        match val {
+            None => StatusResult::NotRunning(),
+            Some(s) => StatusResult::Running(s),
+        }
+    }
+}
+
 pub trait Startable {
     fn start(
         &self,
@@ -582,6 +600,8 @@ pub trait Startable {
         outputs: &mut OutputsManager,
         cleanup_manager: Arc<Mutex<CleanupManager>>,
     ) -> Result<()>;
+
+    fn status(&self, context: &Context, outputs: &mut OutputsManager) -> Result<StatusResult>;
 }
 
 pub trait Buildable {

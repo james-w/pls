@@ -6,14 +6,18 @@ use log::{debug, info};
 use validator::Validate;
 
 use crate::cleanup::CleanupManager;
-use crate::commands::{run_command, spawn_command_with_pidfile, stop_using_pidfile};
+use crate::commands::{
+    run_command, spawn_command_with_pidfile, status_using_pidfile, stop_using_pidfile,
+};
 use crate::config::ContainerCommand as ConfigContainerCommand;
 use crate::context::Context;
 use crate::default::{default_optional, default_to};
 use crate::outputs::OutputsManager;
 use crate::rand::rand_string;
 use crate::shell::{escape_and_prepend, escape_and_prepend_vec, escape_string};
-use crate::target::{create_metadata_dir, CommandInfo, Runnable, Startable, TargetInfo};
+use crate::target::{
+    create_metadata_dir, CommandInfo, Runnable, Startable, StatusResult, TargetInfo,
+};
 
 #[derive(Debug, Clone, Validate)]
 pub struct ContainerCommand {
@@ -188,6 +192,18 @@ impl Startable for ContainerCommand {
             info!("[{}] Stopping", self.target_info.name);
         };
         stop_using_pidfile(&pid_path, log_stop)
+    }
+
+    fn status(&self, _context: &Context, _outputs: &mut OutputsManager) -> Result<StatusResult> {
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+
+        let pid_path = config_dir.join("pid");
+        debug!(
+            "Searching for pid file for target <{}> at <{}>",
+            self.target_info.name,
+            pid_path.display()
+        );
+        status_using_pidfile(&pid_path).map(|s| s.into())
     }
 }
 
