@@ -15,7 +15,7 @@
 * :heavy_check_mark: Defaults for those arguments
 * :heavy_check_mark: Env variables
 * :heavy_check_mark: Return values, can be used by dependants, e.g. container name, port
-* :soon: Status for daemons
+* :heavy_check_mark: Status for daemons
 * :soon: Logs for daemons
 * :heavy_check_mark: List targets
 * :heavy_check_mark: Descriptions
