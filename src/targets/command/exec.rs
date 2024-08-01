@@ -5,13 +5,15 @@ use log::{debug, info};
 use validator::Validate;
 
 use crate::cleanup::CleanupManager;
-use crate::commands::{run_command_with_env, spawn_command_with_pidfile, stop_using_pidfile};
+use crate::commands::{
+    run_command_with_env, spawn_command_with_pidfile, status_using_pidfile, stop_using_pidfile,
+};
 use crate::config::ExecCommand as ConfigExecCommand;
 use crate::context::Context;
 use crate::default::{default_optional, default_to};
 use crate::outputs::OutputsManager;
 use crate::target::create_metadata_dir;
-use crate::target::{CommandInfo, Runnable, Startable, TargetInfo};
+use crate::target::{CommandInfo, Runnable, Startable, StatusResult, TargetInfo};
 
 #[derive(Debug, Clone, Validate)]
 pub struct ExecCommand {
@@ -146,5 +148,12 @@ impl Startable for ExecCommand {
             info!("[{}] Stopping", self.target_info.name);
         };
         stop_using_pidfile(&pid_path, log_stop)
+    }
+
+    fn status(&self, _context: &Context, _outputs: &mut OutputsManager) -> Result<StatusResult> {
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+
+        let pid_path = config_dir.join("pid");
+        status_using_pidfile(&pid_path).map(|s| s.into())
     }
 }

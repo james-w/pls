@@ -8,6 +8,7 @@ mod execute;
 mod list;
 mod run;
 mod start;
+mod status;
 mod stop;
 
 use crate::cleanup::CleanupManager;
@@ -17,6 +18,7 @@ pub use execute::Execute;
 use list::ListCommand;
 use run::RunCommand;
 use start::StartCommand;
+use status::StatusCommand;
 use stop::StopCommand;
 
 #[derive(Parser, Debug)]
@@ -54,7 +56,10 @@ pub enum Commands {
 
     /// List available targets
     List(ListCommand),
-    // TODO: status, logs
+
+    /// Get the status of a daemon
+    Status(StatusCommand),
+    // TODO: logs
 }
 
 impl Execute for Commands {
@@ -65,6 +70,7 @@ impl Execute for Commands {
             Commands::Stop(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Build(cmd) => cmd.execute(context, cleanup_manager),
             Commands::List(cmd) => cmd.execute(context, cleanup_manager),
+            Commands::Status(cmd) => cmd.execute(context, cleanup_manager),
         }
     }
 }

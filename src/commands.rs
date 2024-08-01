@@ -200,6 +200,35 @@ pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> 
     Ok(())
 }
 
+pub fn status_using_pidfile(pid_path: &std::path::PathBuf) -> Result<Option<String>> {
+    let mut pid_str = std::fs::read_to_string(pid_path);
+    match pid_str {
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::NotFound => Ok(None),
+            _ => Err(anyhow!(
+                "Error reading pid file for target at <{}>: {}",
+                pid_path.display(),
+                e
+            )),
+        },
+        Ok(ref mut pid_str) => {
+            let pid_str = pid_str.trim().to_string();
+            debug!(
+                "Found pid <{}> for target at <{}>",
+                pid_str,
+                pid_path.display()
+            );
+
+            let pid = nix::unistd::Pid::from_raw(pid_str.parse::<i32>()?);
+            if is_process_alive(pid) {
+                Ok(Some(format!("Process running with pid <{}>", pid)))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 /*
 use daemonize::{Daemonize, Outcome};
         let daemonize = Daemonize::new()
