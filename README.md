@@ -166,7 +166,7 @@ are variables that are substituted into commands and more.
 
 ```toml
 [command.exec.write_config]
-command = ./write_base_config {config_file}
+command = "./write_base_config {config_file}"
 variables = { "config_file" = "base_config.yaml" }
 ```
 
@@ -180,7 +180,7 @@ You can then also refer to these variables from other targets:
 
 ```toml
 [command.exec.show_config]
-command = cat {write_config.config_file}
+command = "cat {write_config.config_file}"
 ```
 
 You can also specify global variables for things that don't belong to a single target:
@@ -190,7 +190,7 @@ You can also specify global variables for things that don't belong to a single t
 project_name = "foo"
 
 [command.exec.show_project_name]
-command = echo {globals.project_name}
+command = "echo {globals.project_name}"
 ```
 
 #### Long-running commands with daemons
@@ -201,7 +201,7 @@ commands as normal, but set the `daemon` option:
 
 ```toml
 [command.exec.dev]
-command = npm run dev
+command = "npm run dev"
 daemon = true
 ```
 
@@ -231,7 +231,7 @@ then it will be started as a pre-requisite, and then stopped after.
 $ pls run integration_tests
 [command.exec.db] Starting ...
 [command.exec.integration_tests] Running command npm test
-...
+# ...
 [command.exec.db] Stopping ...
 ```
 
@@ -282,7 +282,7 @@ command = "./build"
 ```console
 $ pls build
 [artifact.exec.build] Building with command ./build
-...
+# ...
 $ pls build
 [artifact.exec.build] Up to date
 ```
