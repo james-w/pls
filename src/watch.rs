@@ -36,7 +36,7 @@ impl Debug for WatchTrigger<'_> {
 }
 
 impl WatchTrigger<'_> {
-    fn get_one(target: &Target) -> Result<WatchTrigger> {
+    fn get_one(target: &Target) -> Result<WatchTrigger<'_>> {
         let paths = if let Ok(artifact) = target.artifact() {
             let artifact_info = artifact.artifact_info();
             // TODO: variables
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_single_pattern() {
-        let patterns = vec![Pattern::new("test/*.rs").unwrap()];
+        let patterns = [Pattern::new("test/*.rs").unwrap()];
         let result = find_matching_paths(&patterns.iter().collect::<Vec<_>>());
 
         // Expected to return 'test/' as it covers all possible matches for 'test/*.rs'
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_overlapping_patterns() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("test/*.rs").unwrap(),
             Pattern::new("test/sub/*").unwrap(),
         ];
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_patterns() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("test/*.rs").unwrap(),
             Pattern::new("test/*.rs").unwrap(),
         ];
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_disjoint_patterns() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("test/*").unwrap(),
             Pattern::new("other/*").unwrap(),
         ];
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_nested_patterns() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("src/**/*.rs").unwrap(),
             Pattern::new("src/lib/**/*.rs").unwrap(),
         ];
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_complex_patterns() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("src/*/*.rs").unwrap(),
             Pattern::new("tests/*/*.rs").unwrap(),
             Pattern::new("docs/*/*.md").unwrap(),
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_star_covers_non_star() {
-        let patterns = vec![
+        let patterns = [
             Pattern::new("src/*/*.rs").unwrap(),
             Pattern::new("src/foo/*.rs").unwrap(),
         ];
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_root_patterns() {
-        let patterns = vec![Pattern::new("*/*/*.rs").unwrap()];
+        let patterns = [Pattern::new("*/*/*.rs").unwrap()];
         let result = find_matching_paths(&patterns.iter().collect::<Vec<_>>());
 
         // Expected to return './' as it covers all possible matches

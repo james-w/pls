@@ -17,8 +17,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        # Sync with dockerfiles/cargo-base/Dockerfile
-        toolchain: 1.75
+        toolchain: 1.84.1
         override: true
         components: rustfmt, clippy, llvm-tools-preview
     - name: Setup cargo cache
