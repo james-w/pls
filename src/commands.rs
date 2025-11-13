@@ -302,6 +302,8 @@ mod tests {
     #[test]
     fn test_stop_process() {
         let start = std::time::Instant::now();
+
+        #[allow(clippy::zombie_processes)]
         let child = build_command("sleep 4").unwrap().spawn().unwrap();
         let pid = nix::unistd::Pid::from_raw(child.id() as i32);
         assert!(is_process_alive(pid));

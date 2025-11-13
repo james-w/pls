@@ -109,7 +109,7 @@ fn extract_variables(input: &str) -> Vec<String> {
     let mut results = Vec::new();
     let mut start = None;
 
-    for (i, c) in input.chars().enumerate() {
+    for (i, c) in input.char_indices() {
         match c {
             '{' => start = Some(i + 1),
             '}' => {
@@ -717,18 +717,17 @@ impl Context {
         )
     }
 
-    pub fn get_target(&self, name: &str) -> CommandLookupResult {
+    pub fn get_target(&self, name: &str) -> CommandLookupResult<'_> {
         if name.contains('.') {
             let (tag, name) = name.split_once('.').unwrap();
             let fully_qualified_name = FullyQualifiedName {
                 tag: tag.to_string(),
                 name: name.to_string(),
             };
-            return self
-                .targets
+            self.targets
                 .get(&fully_qualified_name)
                 .map(CommandLookupResult::Found)
-                .unwrap_or(CommandLookupResult::NotFound);
+                .unwrap_or(CommandLookupResult::NotFound)
         } else {
             debug!(
                 "Looking up command <{}> in <{:?}>",
@@ -980,7 +979,7 @@ mod tests {
                 name: "b".to_string(),
             }],
         );
-        let requires = vec!["a".to_string(), "b".to_string()];
+        let requires = ["a".to_string(), "b".to_string()];
         let resolved = resolve_requires(requires.iter(), &name_map).unwrap();
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].name, "a");
@@ -1010,7 +1009,7 @@ mod tests {
                 },
             ],
         );
-        let requires = vec!["a".to_string(), "b".to_string()];
+        let requires = ["a".to_string(), "b".to_string()];
         let resolved = resolve_requires(requires.iter(), &name_map);
         assert!(resolved.is_err());
         assert_eq!(
@@ -1022,7 +1021,7 @@ mod tests {
     #[test]
     fn test_resolve_requires_non_existent() {
         let name_map = HashMap::new();
-        let requires = vec!["a".to_string(), "b".to_string()];
+        let requires = ["a".to_string(), "b".to_string()];
         let resolved = resolve_requires(requires.iter(), &name_map);
         assert!(resolved.is_err());
         assert_eq!(

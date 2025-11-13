@@ -27,8 +27,14 @@ impl Execute for StatusCommand {
                 let builder = target.as_startable();
                 if let Some(builder) = builder {
                     match builder.status(&context, &mut outputs) {
-                        Ok(StatusResult::Running(msg)) => Ok(println!("[{}] {}", target.target_info().name, msg.as_str())),
-                        Ok(StatusResult::NotRunning()) => Ok(println!("[{}] Not running", target.target_info().name)),
+                        Ok(StatusResult::Running(msg)) => {
+                            println!("[{}] {}", target.target_info().name, msg.as_str());
+                            Ok(())
+                        },
+                        Ok(StatusResult::NotRunning()) => {
+                            println!("[{}] Not running", target.target_info().name);
+                            Ok(())
+                        },
                         Err(e) => Err(e),
                     }
                 } else {

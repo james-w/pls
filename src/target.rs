@@ -859,6 +859,7 @@ pub trait Startable {
 
     fn status(&self, context: &Context, outputs: &mut OutputsManager) -> Result<StatusResult>;
 
+    #[allow(dead_code)]
     fn restart(
         &self,
         context: &Context,
