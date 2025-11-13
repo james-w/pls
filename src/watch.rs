@@ -7,6 +7,7 @@ use glob::Pattern;
 use log::debug;
 
 use crate::context::Context;
+use crate::outputs::OutputsManager;
 use crate::target::Target;
 
 pub struct WatchTrigger<'a> {
@@ -36,16 +37,24 @@ impl Debug for WatchTrigger<'_> {
 }
 
 impl WatchTrigger<'_> {
-    fn get_one(target: &Target) -> Result<WatchTrigger<'_>> {
+    fn get_one<'a>(target: &'a Target, context: &Context) -> Result<WatchTrigger<'a>> {
         let paths = if let Ok(artifact) = target.artifact() {
             let artifact_info = artifact.artifact_info();
-            // TODO: variables
-            artifact_info
-                .if_files_changed
-                .as_ref()
-                .map(|fs| fs.iter().map(|f| Pattern::new(f)).collect())
-                .transpose()?
-                .unwrap_or_default()
+            let patterns: Result<Vec<Pattern>> = match artifact_info.if_files_changed.as_ref() {
+                Some(fs) => fs
+                    .iter()
+                    .map(|f| {
+                        let resolved = context.resolve_substitutions(
+                            f,
+                            &target.target_info().name,
+                            &OutputsManager::default(),
+                        )?;
+                        Pattern::new(&resolved).map_err(|e| anyhow::anyhow!("{}", e))
+                    })
+                    .collect(),
+                None => Ok(vec![]),
+            };
+            patterns?
         } else {
             vec![]
         };
@@ -60,7 +69,7 @@ impl WatchTrigger<'_> {
         let mut triggers = HashMap::new();
         triggers.insert(
             target.target_info().name.clone(),
-            WatchTrigger::get_one(target)?,
+            WatchTrigger::get_one(target, context)?,
         );
         let mut to_find = HashSet::new();
         let mut and_then_map = HashMap::new();
@@ -85,7 +94,10 @@ impl WatchTrigger<'_> {
                     .targets
                     .get(next)
                     .ok_or(anyhow!("Target <{}> not known", next))?;
-                triggers.insert((*next).clone(), WatchTrigger::get_one(next_target)?);
+                triggers.insert(
+                    (*next).clone(),
+                    WatchTrigger::get_one(next_target, context)?,
+                );
                 let requires = next_target
                     .target_info()
                     .requires
