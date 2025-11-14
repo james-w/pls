@@ -460,6 +460,16 @@ impl Startable for NullCommand {
         Ok(())
     }
 
+    fn start_if_needed(
+        &self,
+        _context: &Context,
+        _outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        _args: Vec<String>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn stop(
         &self,
         _context: &Context,
@@ -598,7 +608,7 @@ fn run_required(
                     required_target.target_info().name,
                     required_target.target_info().name
                 );
-                startable.start(context, outputs, cleanup_manager.clone(), vec![])?;
+                startable.start_if_needed(context, outputs, cleanup_manager.clone(), vec![])?;
             }
             (None, false, _, Some(runnable)) => {
                 debug!(
@@ -749,6 +759,23 @@ impl Startable for Command {
         result
     }
 
+    fn start_if_needed(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        match self {
+            Command::Exec(exec) => exec.start_if_needed(context, outputs, cleanup_manager, args),
+            Command::Container(container) => {
+                container.start_if_needed(context, outputs, cleanup_manager, args)
+            }
+            #[cfg(test)]
+            Command::Null(_) => Ok(()),
+        }
+    }
+
     fn stop(
         &self,
         context: &Context,
@@ -849,6 +876,14 @@ pub trait Startable {
     ) -> Result<()> {
         self.start(context, outputs, cleanup_manager, args)
     }
+
+    fn start_if_needed(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()>;
 
     fn stop(
         &self,

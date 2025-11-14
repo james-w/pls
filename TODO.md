@@ -10,7 +10,6 @@
 ## Feature Enhancements
 
 ### Daemon Management
-* Don't error if daemon is already started when it's required as a dependency
 * Is it possible to reparent daemons so that the stop command is more reliable?
 * Stop getting ESRCH when trying to send signal
 

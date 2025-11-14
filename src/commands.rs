@@ -137,39 +137,116 @@ pub fn spawn_command_with_pidfile(
     pid_path: &std::path::PathBuf,
     log_path: &std::path::PathBuf,
     on_start: impl Fn(),
+    idempotent: bool,
 ) -> Result<()> {
-    if pid_path.exists() {
-        let pid_str = std::fs::read_to_string(pid_path)?;
-        debug!(
-            "Found pid file at <{}>, with contents <{}>, checking if it is alive",
-            pid_path.display(),
-            pid_str.trim()
-        );
-        let pid = pid_str.trim().parse::<i32>()?;
-        if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
-            return Err(anyhow!("Daemon for is already running with pid <{}>", pid));
+    use std::fs::OpenOptions;
+    use std::io::{Read, Write};
+
+    // Open/create PID file with locking for idempotent operation
+    if idempotent {
+        use nix::fcntl::{Flock, FlockArg};
+
+        let pid_file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(pid_path)?;
+
+        // Try to acquire exclusive lock
+        match Flock::lock(pid_file, FlockArg::LockExclusiveNonblock) {
+            Ok(mut flock) => {
+                // Got the lock - check if there's an existing PID
+                let mut existing_pid = String::new();
+                flock.read_to_string(&mut existing_pid)?;
+
+                if !existing_pid.is_empty() {
+                    let existing_pid = existing_pid.trim();
+                    debug!(
+                        "Found existing pid <{}> in locked file, checking if alive",
+                        existing_pid
+                    );
+                    if let Ok(pid) = existing_pid.parse::<i32>() {
+                        if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
+                            debug!("Daemon is already running with pid <{}>", pid);
+                            // Daemon is running, unlock and return success
+                            return Ok(());
+                        }
+                        debug!(
+                            "Process with pid <{}> is not running, will start new daemon",
+                            pid
+                        );
+                    }
+                }
+
+                // No running daemon, proceed to start
+                debug!("Creating log file at <{}>", log_path.display());
+                let log = File::create(log_path)?;
+
+                debug!("Starting daemon with command <{}>", cmd);
+                on_start();
+                // TODO: cwd
+                let mut cmd = build_command_with_env(cmd, env)?;
+                let child = cmd
+                    .stdout(log.try_clone()?)
+                    .stderr(log.try_clone()?)
+                    .spawn()?;
+                debug!(
+                    "Started daemon with pid <{}>, storing at <{}>",
+                    child.id(),
+                    pid_path.display()
+                );
+
+                // Write PID while holding lock
+                flock.set_len(0)?; // Truncate file
+                flock.write_all(child.id().to_string().as_bytes())?;
+                flock.flush()?;
+
+                // Lock is automatically released when pid_file is dropped
+                Ok(())
+            }
+            Err((_file, nix::errno::Errno::EWOULDBLOCK)) => {
+                // Someone else holds the lock = daemon is starting or running
+                debug!("PID file is locked by another process, daemon is already starting/running");
+                Ok(())
+            }
+            Err((_file, e)) => Err(anyhow!("Failed to lock PID file: {}", e)),
         }
-        debug!("Process with pid <{}> is not running, continuing", pid);
+    } else {
+        // Non-idempotent mode: existing behavior (error if already running)
+        if pid_path.exists() {
+            let pid_str = std::fs::read_to_string(pid_path)?;
+            debug!(
+                "Found pid file at <{}>, with contents <{}>, checking if it is alive",
+                pid_path.display(),
+                pid_str.trim()
+            );
+            let pid = pid_str.trim().parse::<i32>()?;
+            if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
+                return Err(anyhow!("Daemon for is already running with pid <{}>", pid));
+            }
+            debug!("Process with pid <{}> is not running, continuing", pid);
+        }
+
+        debug!("Creating log file at <{}>", log_path.display());
+        let log = File::create(log_path)?;
+
+        debug!("Starting daemon with command <{}>", cmd);
+        on_start();
+        // TODO: cwd
+        let mut cmd = build_command_with_env(cmd, env)?;
+        let child = cmd
+            .stdout(log.try_clone()?)
+            .stderr(log.try_clone()?)
+            .spawn()?;
+        debug!(
+            "Started daemon for with pid <{}>, storing at <{}>",
+            child.id(),
+            pid_path.display()
+        );
+        std::fs::write(pid_path, child.id().to_string())?;
+        Ok(())
     }
-
-    debug!("Creating log file at <{}>", log_path.display());
-    let log = File::create(log_path)?;
-
-    debug!("Starting daemon with command <{}>", cmd);
-    on_start();
-    // TODO: cwd
-    let mut cmd = build_command_with_env(cmd, env)?;
-    let child = cmd
-        .stdout(log.try_clone()?)
-        .stderr(log.try_clone()?)
-        .spawn()?;
-    debug!(
-        "Started daemon for with pid <{}>, storing at <{}>",
-        child.id(),
-        pid_path.display()
-    );
-    std::fs::write(pid_path, child.id().to_string())?;
-    Ok(())
 }
 
 pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> Result<()> {
