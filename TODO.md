@@ -7,26 +7,6 @@
   - Currently only startable (daemon) targets run initially
   - Non-daemon targets require a file change before first run
 
-## Commands to Implement
-
-### Logs Command ✅ (Ready to implement - infrastructure exists)
-* **Status**: Infrastructure complete - stdout/stderr already captured to `.pls/<target>/log`
-* **What exists**:
-  - Log files created at `.pls/<target-name>/log` (src/commands.rs:155-165)
-  - Both exec and container commands capture output
-  - Metadata directory structure in place
-* **What to build**:
-  - New command in `src/cmd/logs.rs`
-  - Basic: read and display log file
-  - Flag: `-n/--tail` for last N lines (default 10)
-  - Flag: `-f/--follow` for tail -f behavior
-  - Error handling: target not found, not a daemon, not started, empty log
-* **Files to modify**:
-  - NEW: `src/cmd/logs.rs`
-  - MODIFY: `src/cmd/mod.rs` line 67 (replace TODO)
-* **Estimate**: 2-4 hours, LOW-MEDIUM complexity
-* **No blockers**: Can be implemented independently
-
 ## Feature Enhancements
 
 ### Daemon Management
