@@ -164,6 +164,7 @@ impl Startable for ContainerCommand {
             &[],
             &pid_path,
             &log_path,
+            None,
             log_start,
         )?;
         // TODO: post_stop_commands

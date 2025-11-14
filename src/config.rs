@@ -116,6 +116,8 @@ pub struct ExecCommand {
     pub default_args: Option<String>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
 
     #[serde(flatten)]
     #[validate(nested)]
@@ -158,6 +160,11 @@ impl ExecCommand {
             .env
             .as_ref()
             .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
             .transpose()?;
         Ok(new)
     }
@@ -301,6 +308,8 @@ pub struct ExecArtifact {
     pub command: Option<String>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
 
     #[serde(flatten)]
     #[validate(nested)]
@@ -338,6 +347,11 @@ impl ExecArtifact {
             .env
             .as_ref()
             .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
             .transpose()?;
         Ok(new)
     }

@@ -7,10 +7,10 @@ use log::debug;
 use nix::errno::Errno;
 
 pub fn build_command(command: &str) -> Result<std::process::Command> {
-    build_command_with_env(command, &[])
+    build_command_with_env(command, &[], None)
 }
 
-pub fn build_command_with_env(command: &str, env: &[String]) -> Result<std::process::Command> {
+pub fn build_command_with_env(command: &str, env: &[String], dir: Option<&std::path::Path>) -> Result<std::process::Command> {
     let mut split = shlex::Shlex::new(command);
     debug!(
         "Split command <{}> into parts: <{}>",
@@ -28,6 +28,10 @@ pub fn build_command_with_env(command: &str, env: &[String]) -> Result<std::proc
                 debug!("Setting env var <{}> to <>", env_v);
                 cmd.env(env_v, "");
             }
+        }
+        if let Some(dir) = dir {
+            debug!("Setting working directory to <{}>", dir.display());
+            cmd.current_dir(dir);
         }
         Ok(split.fold(cmd, |mut cmd, arg| {
             cmd.arg(arg);
@@ -93,11 +97,11 @@ pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
 }
 
 pub fn run_command(cmd: &str) -> Result<()> {
-    run_command_with_env(cmd, &[])
+    run_command_with_env(cmd, &[], None)
 }
 
-pub fn run_command_with_env(cmd: &str, env: &[String]) -> Result<()> {
-    let mut cmd = build_command_with_env(cmd, env)?;
+pub fn run_command_with_env(cmd: &str, env: &[String], dir: Option<&std::path::Path>) -> Result<()> {
+    let mut cmd = build_command_with_env(cmd, env, dir)?;
     let status = cmd.status()?;
     if !status.success() {
         if let Some(code) = status.code() {
@@ -136,6 +140,7 @@ pub fn spawn_command_with_pidfile(
     env: &[String],
     pid_path: &std::path::PathBuf,
     log_path: &std::path::PathBuf,
+    dir: Option<&std::path::Path>,
     on_start: impl Fn(),
 ) -> Result<()> {
     if pid_path.exists() {
@@ -157,8 +162,7 @@ pub fn spawn_command_with_pidfile(
 
     debug!("Starting daemon with command <{}>", cmd);
     on_start();
-    // TODO: cwd
-    let mut cmd = build_command_with_env(cmd, env)?;
+    let mut cmd = build_command_with_env(cmd, env, dir)?;
     let child = cmd
         .stdout(log.try_clone()?)
         .stderr(log.try_clone()?)
