@@ -65,6 +65,7 @@ impl Execute for WatchCommand {
         let mut outputs = OutputsManager::default();
         match context.get_target(self.name.as_str()) {
             CommandLookupResult::Found(target) => {
+                let user_goal = target; // Store reference to user's specified target
                 let triggers = WatchTrigger::get_all(target, &context)?;
                 debug!("Triggers: {:?}", triggers);
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -108,21 +109,32 @@ impl Execute for WatchCommand {
                                     paths,
                                     trigger.target.target_info().name
                                 );
+                                // Pass args only if this is the user's specified goal target
+                                let args = if std::ptr::eq(trigger.target, user_goal) {
+                                    self.args.clone()
+                                } else {
+                                    vec![]
+                                };
                                 start_or_run(
                                     trigger.target,
                                     &context,
                                     &mut outputs,
                                     cleanup_manager.clone(),
-                                    vec![],
+                                    args,
                                 )?;
-                                for target in trigger.and_then.iter() {
-                                    // TODO: args
+                                for and_then_target in trigger.and_then.iter() {
+                                    // Pass args only if this is the user's specified goal target
+                                    let args = if std::ptr::eq(*and_then_target, user_goal) {
+                                        self.args.clone()
+                                    } else {
+                                        vec![]
+                                    };
                                     start_or_run(
-                                        target,
+                                        and_then_target,
                                         &context,
                                         &mut outputs,
                                         cleanup_manager.clone(),
-                                        vec![],
+                                        args,
                                     )?;
                                 }
                             }

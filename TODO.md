@@ -3,9 +3,6 @@
 ## High Priority Fixes
 
 ### Watch Command Issues (commit 704eaf6 - "has issues depending on targets")
-* **IMPORTANT**: Propagate args through `and_then` dependency chain
-  - Location: `src/cmd/watch.rs:119-126` - TODO comment, passes `vec![]`
-  - Impact: Downstream targets in watch don't receive command-line arguments
 * **UX**: Run target initially before watching starts
   - Currently only startable (daemon) targets run initially
   - Non-daemon targets require a file change before first run
