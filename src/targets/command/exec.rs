@@ -22,6 +22,7 @@ pub struct ExecCommand {
     pub default_args: Option<String>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Vec<String>,
+    pub dir: Option<String>,
 
     #[validate(nested)]
     pub target_info: TargetInfo,
@@ -44,6 +45,7 @@ impl ExecCommand {
         ExecCommand {
             command: default_to!(defn, base, command),
             default_args: default_optional!(defn, base, default_args),
+            dir: default_optional!(defn, base, dir),
             target_info,
             command_info,
             env,
@@ -89,13 +91,17 @@ impl Runnable for ExecCommand {
             .iter()
             .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
             .collect::<Result<Vec<String>>>()?;
+        let dir = self
+            .dir
+            .as_ref()
+            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .transpose()?;
         debug!(
             "Running target <{}> with command <{}>",
             self.target_info.name, command
         );
         info!("[{}] Running {}", self.target_info.name, command);
-        // TODO: cwd
-        run_command_with_env(command.as_str(), env.as_slice())
+        run_command_with_env(command.as_str(), env.as_slice(), dir.as_deref().map(std::path::Path::new))
     }
 }
 
@@ -118,6 +124,11 @@ impl Startable for ExecCommand {
             .iter()
             .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
             .collect::<Result<Vec<String>>>()?;
+        let dir = self
+            .dir
+            .as_ref()
+            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .transpose()?;
         let log_start = || {
             info!("[{}] Starting {}", self.target_info.name, cmd);
         };
@@ -126,6 +137,7 @@ impl Startable for ExecCommand {
             env.as_slice(),
             &pid_path,
             &log_path,
+            dir.as_deref().map(std::path::Path::new),
             log_start,
         )
     }

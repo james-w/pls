@@ -825,6 +825,7 @@ mod tests {
             command: "echo {foo.output.key}".to_string(),
             default_args: None,
             env: vec![],
+            dir: None,
         };
         context
             .targets

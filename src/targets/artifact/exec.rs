@@ -18,6 +18,7 @@ pub struct ExecArtifact {
     pub command: String,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Vec<String>,
+    pub dir: Option<String>,
 
     #[validate(nested)]
     pub artifact_info: ArtifactInfo,
@@ -41,6 +42,7 @@ impl ExecArtifact {
             target_info,
             artifact_info,
             command: default_to!(defn, base, command),
+            dir: defn.dir.clone().or_else(|| base.and_then(|b| b.dir.clone())),
             env,
         }
     }
@@ -67,11 +69,16 @@ impl Buildable for ExecArtifact {
             .iter()
             .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
             .collect::<Result<Vec<String>>>()?;
+        let dir = self
+            .dir
+            .as_ref()
+            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .transpose()?;
         debug!(
             "Building exec artifact for target <{}> with command <{}>",
             self.target_info.name, cmd
         );
         info!("[{}] Building with command {}", self.target_info.name, cmd);
-        run_command_with_env(&cmd, env.as_slice())
+        run_command_with_env(&cmd, env.as_slice(), dir.as_deref().map(std::path::Path::new))
     }
 }
