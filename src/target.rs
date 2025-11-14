@@ -199,36 +199,7 @@ impl Buildable for Artifact {
         outputs: &mut OutputsManager,
         cleanup_manager: Arc<Mutex<CleanupManager>>,
     ) -> Result<()> {
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.build_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            true,
-            true,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        self.build_target_inner(context, outputs, cleanup_manager, true, true)
     }
 }
 
@@ -237,7 +208,6 @@ impl Artifact {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         check_should_rerun: bool,
         run_deps: bool,
@@ -294,36 +264,7 @@ impl Runnable for Artifact {
         if !args.is_empty() {
             return Err(anyhow!("Artifacts do not accept arguments"));
         }
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.build_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            false,
-            true,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        self.build_target_inner(context, outputs, cleanup_manager, false, true)
     }
 
     fn run_no_deps(
@@ -336,36 +277,7 @@ impl Runnable for Artifact {
         if !args.is_empty() {
             return Err(anyhow!("Artifacts do not accept arguments"));
         }
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.build_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            false,
-            false,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        self.build_target_inner(context, outputs, cleanup_manager, false, false)
     }
 }
 
@@ -531,35 +443,7 @@ impl Runnable for Command {
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.run_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            args,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        self.run_target_inner(context, outputs, cleanup_manager, args)
     }
 
     // TODO: run_no_deps
@@ -629,7 +513,6 @@ impl Command {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
@@ -655,7 +538,6 @@ impl Command {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _to_stop: &mut [&Target],
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
         run_deps: bool,
@@ -688,36 +570,8 @@ impl Startable for Command {
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.start_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            args,
-            true,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        // Don't run cleanups at end - explicit starts should keep daemons running
+        self.start_target_inner(context, outputs, cleanup_manager, args, true)
     }
 
     fn start_no_deps(
@@ -727,36 +581,8 @@ impl Startable for Command {
         cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
-        let mut to_stop: Vec<&Target> = vec![];
-        let result = self.start_target_inner(
-            context,
-            outputs,
-            &mut to_stop,
-            cleanup_manager.clone(),
-            args,
-            false,
-        );
-        // TODO: use cleanup manager to handle the to_stop stuff?
-        // Reverse the order that they were started
-        to_stop.reverse();
-        for target in to_stop.iter() {
-            // TODO: add in errors to result
-            if let Some(s) = target.as_startable() {
-                if let Err(e) = s.stop(context, outputs, cleanup_manager.clone()) {
-                    warn!(
-                        "Error stopping target <{}>: {}",
-                        target.target_info().name,
-                        e
-                    );
-                }
-            } else {
-                panic!(
-                    "Supposed to stop <{}> but as_startable is None",
-                    target.target_info().name
-                );
-            }
-        }
-        result
+        // Don't run cleanups at end - explicit starts should keep daemons running
+        self.start_target_inner(context, outputs, cleanup_manager, args, false)
     }
 
     fn start_if_needed(

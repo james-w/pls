@@ -127,7 +127,7 @@ impl Startable for ContainerCommand {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
         let container_name = format!("{}-{}", self.target_info.name, rand_string(8));
@@ -167,7 +167,16 @@ impl Startable for ContainerCommand {
             log_start,
             false, // Not idempotent - error if already running
         )?;
-        // TODO: post_stop_commands
+        // Register post_stop_commands with cleanup manager
+        for post_command in command.post_stop_commands.into_iter() {
+            cleanup_manager.lock().unwrap().push_cleanup(
+                "clean_up_network".to_string(),
+                move || {
+                    debug!("Running post stop command <{}>", post_command);
+                    run_command(post_command.as_str()).unwrap();
+                },
+            );
+        }
         outputs.store_output(self.target_info.name.clone(), "name", command.name.as_str());
         if let Some(network) = command.network {
             outputs.store_output(self.target_info.name.clone(), "network", network.as_str());
@@ -179,7 +188,7 @@ impl Startable for ContainerCommand {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
         let container_name = format!("{}-{}", self.target_info.name, rand_string(8));
@@ -216,7 +225,16 @@ impl Startable for ContainerCommand {
             log_start,
             true, // Idempotent - don't error if already running
         )?;
-        // TODO: post_stop_commands
+        // Register post_stop_commands with cleanup manager
+        for post_command in command.post_stop_commands.into_iter() {
+            cleanup_manager.lock().unwrap().push_cleanup(
+                "clean_up_network".to_string(),
+                move || {
+                    debug!("Running post stop command <{}>", post_command);
+                    run_command(post_command.as_str()).unwrap();
+                },
+            );
+        }
         outputs.store_output(self.target_info.name.clone(), "name", command.name.as_str());
         if let Some(network) = command.network {
             outputs.store_output(self.target_info.name.clone(), "network", network.as_str());
