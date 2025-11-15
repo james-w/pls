@@ -240,7 +240,11 @@ fn test_artifact_with_dir_option() {
 
     let test_context = common::TestContext::new();
     test_context.write_config(config_src);
-    test_context.workdir.child("subdir").create_dir_all().unwrap();
+    test_context
+        .workdir
+        .child("subdir")
+        .create_dir_all()
+        .unwrap();
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("create_file_in_subdir");
@@ -267,7 +271,11 @@ fn test_artifact_dir_with_variable() {
 
     let test_context = common::TestContext::new();
     test_context.write_config(config_src);
-    test_context.workdir.child("subdir").create_dir_all().unwrap();
+    test_context
+        .workdir
+        .child("subdir")
+        .create_dir_all()
+        .unwrap();
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("create_file_var_dir");

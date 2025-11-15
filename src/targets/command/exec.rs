@@ -101,7 +101,11 @@ impl Runnable for ExecCommand {
             self.target_info.name, command
         );
         info!("[{}] Running {}", self.target_info.name, command);
-        run_command_with_env(command.as_str(), env.as_slice(), dir.as_deref().map(std::path::Path::new))
+        run_command_with_env(
+            command.as_str(),
+            env.as_slice(),
+            dir.as_deref().map(std::path::Path::new),
+        )
     }
 }
 
