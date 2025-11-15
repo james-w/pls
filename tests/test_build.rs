@@ -228,3 +228,56 @@ fn test_error_when_ambiguous() {
         "Target <copy> is ambiguous, possible values are <artifact.container_image.copy, artifact.exec.copy>",
     ));
 }
+
+#[test]
+fn test_artifact_with_dir_option() {
+    let config_src = r#"
+        [artifact.exec.create_file_in_subdir]
+        command = "sh -c 'pwd > output.txt'"
+        dir = "subdir"
+        updates_paths = ["subdir/output.txt"]
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+    test_context.workdir.child("subdir").create_dir_all().unwrap();
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("build").arg("create_file_in_subdir");
+
+    cmd.assert().success();
+
+    let output_file = test_context.workdir.child("subdir").child("output.txt");
+    output_file.assert(predicate::path::exists());
+
+    let expected_path = test_context.workdir.path().join("subdir");
+    let contents = std::fs::read_to_string(output_file.path()).unwrap();
+    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
+}
+
+#[test]
+fn test_artifact_dir_with_variable() {
+    let config_src = r#"
+        [artifact.exec.create_file_var_dir]
+        command = "sh -c 'pwd > output.txt'"
+        dir = "{build_dir}"
+        variables = { build_dir = "subdir" }
+        updates_paths = ["subdir/output.txt"]
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+    test_context.workdir.child("subdir").create_dir_all().unwrap();
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("build").arg("create_file_var_dir");
+
+    cmd.assert().success();
+
+    let output_file = test_context.workdir.child("subdir").child("output.txt");
+    output_file.assert(predicate::path::exists());
+
+    let expected_path = test_context.workdir.path().join("subdir");
+    let contents = std::fs::read_to_string(output_file.path()).unwrap();
+    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
+}

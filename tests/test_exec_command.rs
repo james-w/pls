@@ -1,4 +1,5 @@
 use assert_cmd::prelude::*;
+use assert_fs::prelude::*;
 use predicates::prelude::*;
 
 mod common;
@@ -74,4 +75,66 @@ fn test_env() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("HELLO=world").trim());
+}
+
+#[test]
+fn test_dir_option() {
+    let config_src = r#"
+        [command.exec.pwd_in_subdir]
+        command = "pwd"
+        dir = "subdir"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+    test_context.workdir.child("subdir").create_dir_all().unwrap();
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("pwd_in_subdir");
+
+    let expected_path = test_context.workdir.path().join("subdir");
+    cmd.assert()
+        .success()
+        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+}
+
+#[test]
+fn test_dir_with_variable() {
+    let config_src = r#"
+        [command.exec.pwd_in_var_dir]
+        command = "pwd"
+        dir = "{test_dir}"
+        variables = { test_dir = "subdir" }
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+    test_context.workdir.child("subdir").create_dir_all().unwrap();
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("pwd_in_var_dir");
+
+    let expected_path = test_context.workdir.path().join("subdir");
+    cmd.assert()
+        .success()
+        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+}
+
+#[test]
+fn test_dir_default_is_cwd() {
+    let config_src = r#"
+        [command.exec.pwd_no_dir]
+        command = "pwd"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("pwd_no_dir");
+
+    let expected_path = test_context.workdir.path();
+    cmd.assert()
+        .success()
+        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
 }
