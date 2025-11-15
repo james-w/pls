@@ -10,7 +10,11 @@ pub fn build_command(command: &str) -> Result<std::process::Command> {
     build_command_with_env(command, &[], None)
 }
 
-pub fn build_command_with_env(command: &str, env: &[String], dir: Option<&std::path::Path>) -> Result<std::process::Command> {
+pub fn build_command_with_env(
+    command: &str,
+    env: &[String],
+    dir: Option<&std::path::Path>,
+) -> Result<std::process::Command> {
     let mut split = shlex::Shlex::new(command);
     debug!(
         "Split command <{}> into parts: <{}>",
@@ -100,7 +104,11 @@ pub fn run_command(cmd: &str) -> Result<()> {
     run_command_with_env(cmd, &[], None)
 }
 
-pub fn run_command_with_env(cmd: &str, env: &[String], dir: Option<&std::path::Path>) -> Result<()> {
+pub fn run_command_with_env(
+    cmd: &str,
+    env: &[String],
+    dir: Option<&std::path::Path>,
+) -> Result<()> {
     let mut cmd = build_command_with_env(cmd, env, dir)?;
     let status = cmd.status()?;
     if !status.success() {

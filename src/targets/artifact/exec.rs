@@ -42,7 +42,10 @@ impl ExecArtifact {
             target_info,
             artifact_info,
             command: default_to!(defn, base, command),
-            dir: defn.dir.clone().or_else(|| base.and_then(|b| b.dir.clone())),
+            dir: defn
+                .dir
+                .clone()
+                .or_else(|| base.and_then(|b| b.dir.clone())),
             env,
         }
     }
@@ -79,6 +82,10 @@ impl Buildable for ExecArtifact {
             self.target_info.name, cmd
         );
         info!("[{}] Building with command {}", self.target_info.name, cmd);
-        run_command_with_env(&cmd, env.as_slice(), dir.as_deref().map(std::path::Path::new))
+        run_command_with_env(
+            &cmd,
+            env.as_slice(),
+            dir.as_deref().map(std::path::Path::new),
+        )
     }
 }

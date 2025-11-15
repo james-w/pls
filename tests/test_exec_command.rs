@@ -87,7 +87,11 @@ fn test_dir_option() {
 
     let test_context = common::TestContext::new();
     test_context.write_config(config_src);
-    test_context.workdir.child("subdir").create_dir_all().unwrap();
+    test_context
+        .workdir
+        .child("subdir")
+        .create_dir_all()
+        .unwrap();
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_subdir");
@@ -109,7 +113,11 @@ fn test_dir_with_variable() {
 
     let test_context = common::TestContext::new();
     test_context.write_config(config_src);
-    test_context.workdir.child("subdir").create_dir_all().unwrap();
+    test_context
+        .workdir
+        .child("subdir")
+        .create_dir_all()
+        .unwrap();
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_var_dir");
