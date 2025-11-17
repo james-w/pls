@@ -12,12 +12,13 @@ use crate::cleanup::CleanupManager;
 use crate::context::Context;
 use crate::name::FullyQualifiedName;
 use crate::outputs::OutputsManager;
-use crate::targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand};
+use crate::targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand, Group};
 
 #[derive(Debug, Clone)]
 pub enum Target {
     Artifact(Artifact),
     Command(Command),
+    Group(Group),
 }
 
 #[derive(Clone, Debug, Validate)]
@@ -44,6 +45,7 @@ impl Target {
         match self {
             Self::Artifact(artifact) => artifact.target_info(),
             Self::Command(command) => command.target_info(),
+            Self::Group(group) => &group.target_info,
         }
     }
 
@@ -60,6 +62,7 @@ impl Targetable for Target {
         match self {
             Self::Command(c) => c.as_runnable(),
             Self::Artifact(a) => a.as_runnable(),
+            Self::Group(g) => g.as_runnable(),
         }
     }
 
@@ -67,6 +70,7 @@ impl Targetable for Target {
         match self {
             Self::Command(c) => c.as_buildable(),
             Self::Artifact(a) => a.as_buildable(),
+            Self::Group(_) => None,
         }
     }
 
@@ -74,6 +78,7 @@ impl Targetable for Target {
         match self {
             Self::Command(c) => c.as_startable(),
             Self::Artifact(a) => a.as_startable(),
+            Self::Group(_) => None,
         }
     }
 }
@@ -569,7 +574,7 @@ fn topological_sort(
         .collect())
 }
 
-fn run_required(
+pub fn run_required(
     target_info: &TargetInfo,
     context: &Context,
     outputs: &mut OutputsManager,
@@ -639,6 +644,13 @@ fn run_required(
                         vec![],
                     )?;
                 }
+            }
+            // Groups: no action needed, their dependencies are already in execution order
+            Target::Group(group) => {
+                debug!(
+                    "Processing group <{}> (dependencies already handled)",
+                    group.target_info.name
+                );
             }
         }
     }

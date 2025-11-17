@@ -20,6 +20,8 @@ pub struct Config {
     pub command: Option<Command>,
     #[validate(nested)]
     pub artifact: Option<Artifact>,
+    #[validate(nested)]
+    pub group: Option<HashMap<String, GroupDef>>,
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -353,6 +355,35 @@ impl ExecArtifact {
             .as_ref()
             .map(|d| resolve_target_names_in(d, name_map))
             .transpose()?;
+        Ok(new)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct GroupDef {
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+}
+
+impl GroupDef {
+    pub fn tag() -> &'static str {
+        "group"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        false
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        _name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let new = self.clone();
         Ok(new)
     }
 }

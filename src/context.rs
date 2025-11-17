@@ -9,14 +9,14 @@ use crate::{
         ArtifactInfo as ConfigArtifactInfo, CommandInfo as ConfigCommandInfo, Config,
         ContainerBuild as ConfigContainerBuild, ContainerCommand as ConfigContainerCommand,
         ExecArtifact as ConfigExecArtifact, ExecCommand as ConfigExecCommand,
-        TargetInfo as ConfigTargetInfo,
+        GroupDef as ConfigGroupDef, TargetInfo as ConfigTargetInfo,
     },
     default::default_to,
     name::FullyQualifiedName,
     outputs::OutputsManager,
     shell::escape_string,
     target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
-    targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand},
+    targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand, Group},
 };
 
 enum Variable {
@@ -346,6 +346,13 @@ fn resolve_extends(
         name_map,
         base.as_ref().map(|b| b.target_info()),
     )?;
+
+    // Handle groups separately as they are neither artifacts nor commands
+    if matches!(command, ConfigWrapper::Group(_)) {
+        let group = Group { target_info };
+        return Ok(Target::Group(group));
+    }
+
     if command.is_artifact() {
         let artifact_info = artifact_info_from_config(
             name,
@@ -447,6 +454,7 @@ enum ConfigWrapper {
     Container(ConfigContainerCommand),
     ContainerBuild(ConfigContainerBuild),
     ExecArtifact(ConfigExecArtifact),
+    Group(ConfigGroupDef),
 }
 
 impl ConfigWrapper {
@@ -456,6 +464,7 @@ impl ConfigWrapper {
             Self::Container(command) => &command.target_info,
             Self::ContainerBuild(command) => &command.target_info,
             Self::ExecArtifact(command) => &command.target_info,
+            Self::Group(group) => &group.target_info,
         }
     }
 
@@ -465,6 +474,7 @@ impl ConfigWrapper {
             Self::Container(command) => Some(&command.command_info),
             Self::ContainerBuild(_) => None,
             Self::ExecArtifact(_) => None,
+            Self::Group(_) => None,
         }
     }
 
@@ -474,6 +484,7 @@ impl ConfigWrapper {
             Self::Container(_) => None,
             Self::ContainerBuild(command) => Some(&command.artifact_info),
             Self::ExecArtifact(command) => Some(&command.artifact_info),
+            Self::Group(_) => None,
         }
     }
 
@@ -487,6 +498,7 @@ impl ConfigWrapper {
             Self::Container(c) => c.type_tag(),
             Self::ContainerBuild(c) => c.type_tag(),
             Self::ExecArtifact(c) => c.type_tag(),
+            Self::Group(g) => g.type_tag(),
         }
     }
 
@@ -496,6 +508,7 @@ impl ConfigWrapper {
             Self::Container(c) => c.is_artifact(),
             Self::ContainerBuild(c) => c.is_artifact(),
             Self::ExecArtifact(c) => c.is_artifact(),
+            Self::Group(g) => g.is_artifact(),
         }
     }
 }
@@ -576,6 +589,26 @@ impl Context {
                 commands.insert(
                     fully_qualified_name.clone(),
                     ConfigWrapper::ExecArtifact(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
+        }
+        if let Some(ref groups) = config.group {
+            for (name, config_group) in groups.iter() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_group.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::Group(config_group.clone()),
                 );
                 name_map
                     .entry(name.clone())
