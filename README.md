@@ -193,6 +193,32 @@ project_name = "foo"
 command = "echo {globals.project_name}"
 ```
 
+#### Working directory
+
+By default, commands and artifacts run in the current working directory. You can change this
+with the `dir` option to run tools from specific directories:
+
+```toml
+[command.exec.frontend_test]
+command = "npm test"
+dir = "frontend"
+
+[artifact.exec.frontend_build]
+command = "npm run build"
+dir = "frontend"
+```
+
+The `dir` option supports variable substitution, allowing you to use variables or outputs:
+
+```toml
+[command.exec.build_package]
+command = "npm run build"
+dir = "{package_dir}"
+variables = { "package_dir" = "packages/frontend" }
+```
+
+Note: Container commands use `workdir` instead, which sets the working directory inside the container.
+
 #### Long-running commands with daemons
 
 Sometimes the commands that you want to run are long-running, and are run in the
