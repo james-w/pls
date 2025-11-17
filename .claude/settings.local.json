@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: implement logs command for viewing daemon output\n\nAdded new `pls logs` command to view daemon log files with support for:\n- Basic log viewing (shows last N lines, default 10)\n- `-n/--lines` flag to control number of lines shown\n- `-f/--follow` flag for continuous tail-like behavior\n- Validation that target exists, is a daemon, and has been started\n- Comprehensive error handling with helpful messages\n\nImplementation:\n- Created src/cmd/logs.rs with LogsCommand struct\n- Wired up command in src/cmd/mod.rs\n- Added 3 unit tests for helper functions\n- Added 5 integration tests covering success and error cases\n- Updated TODO.md to remove completed item\n\nAll 96 tests pass including new tests for logs functionality.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(cargo doc:*)",
+      "Bash(rustc:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

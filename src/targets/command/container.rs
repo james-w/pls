@@ -127,7 +127,7 @@ impl Startable for ContainerCommand {
         &self,
         context: &Context,
         outputs: &mut OutputsManager,
-        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
         args: Vec<String>,
     ) -> Result<()> {
         let container_name = format!("{}-{}", self.target_info.name, rand_string(8));
@@ -166,8 +166,77 @@ impl Startable for ContainerCommand {
             &log_path,
             None,
             log_start,
+            false, // Not idempotent - error if already running
         )?;
-        // TODO: post_stop_commands
+        // Register post_stop_commands with cleanup manager
+        for post_command in command.post_stop_commands.into_iter() {
+            cleanup_manager.lock().unwrap().push_cleanup(
+                "clean_up_network".to_string(),
+                move || {
+                    debug!("Running post stop command <{}>", post_command);
+                    run_command(post_command.as_str()).unwrap();
+                },
+            );
+        }
+        outputs.store_output(self.target_info.name.clone(), "name", command.name.as_str());
+        if let Some(network) = command.network {
+            outputs.store_output(self.target_info.name.clone(), "network", network.as_str());
+        }
+        Ok(())
+    }
+
+    fn start_if_needed(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        let container_name = format!("{}-{}", self.target_info.name, rand_string(8));
+        // TODO: default_args
+        let command = container_run_command(self, context, outputs, container_name.as_str(), args)
+            .map_err(|e| {
+                anyhow!(
+                    "Error escaping podman command for <{}>: {}",
+                    self.target_info.name,
+                    e
+                )
+            })?;
+
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+
+        let pid_path = config_dir.join("pid");
+        let log_path = config_dir.join("log");
+        let image_name =
+            context.resolve_substitutions(self.image.as_str(), &self.target_info.name, outputs)?;
+        let log_start = || {
+            info!(
+                "[{}] Starting container using {}",
+                self.target_info.name, image_name
+            );
+        };
+        for pre_command in command.pre_commands.iter() {
+            run_command(pre_command.as_str())?;
+        }
+        spawn_command_with_pidfile(
+            command.command.as_str(),
+            &[],
+            &pid_path,
+            &log_path,
+            None,
+            log_start,
+            true, // Idempotent - don't error if already running
+        )?;
+        // Register post_stop_commands with cleanup manager
+        for post_command in command.post_stop_commands.into_iter() {
+            cleanup_manager.lock().unwrap().push_cleanup(
+                "clean_up_network".to_string(),
+                move || {
+                    debug!("Running post stop command <{}>", post_command);
+                    run_command(post_command.as_str()).unwrap();
+                },
+            );
+        }
         outputs.store_output(self.target_info.name.clone(), "name", command.name.as_str());
         if let Some(network) = command.network {
             outputs.store_output(self.target_info.name.clone(), "network", network.as_str());

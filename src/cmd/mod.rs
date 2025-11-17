@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 mod build;
 mod execute;
 mod list;
+mod logs;
 mod run;
 mod start;
 mod status;
@@ -17,6 +18,7 @@ use crate::context::Context;
 use build::BuildCommand;
 pub use execute::Execute;
 use list::ListCommand;
+use logs::LogsCommand;
 use run::RunCommand;
 use start::StartCommand;
 use status::StatusCommand;
@@ -64,7 +66,9 @@ pub enum Commands {
 
     /// Watch for changes and trigger targets in response
     Watch(WatchCommand),
-    // TODO: logs
+
+    /// View logs for a daemon
+    Logs(LogsCommand),
 }
 
 impl Execute for Commands {
@@ -77,6 +81,7 @@ impl Execute for Commands {
             Commands::List(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Status(cmd) => cmd.execute(context, cleanup_manager),
             Commands::Watch(cmd) => cmd.execute(context, cleanup_manager),
+            Commands::Logs(cmd) => cmd.execute(context, cleanup_manager),
         }
     }
 }

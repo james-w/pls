@@ -143,6 +143,44 @@ impl Startable for ExecCommand {
             &log_path,
             dir.as_deref().map(std::path::Path::new),
             log_start,
+            false, // Not idempotent - error if already running
+        )
+    }
+
+    fn start_if_needed(
+        &self,
+        context: &Context,
+        outputs: &mut OutputsManager,
+        _cleanup_manager: Arc<Mutex<CleanupManager>>,
+        args: Vec<String>,
+    ) -> Result<()> {
+        let config_dir = create_metadata_dir(self.target_info.name.to_string().as_str())?;
+
+        let pid_path = config_dir.join("pid");
+        let log_path = config_dir.join("log");
+        // TODO: default_args
+        let cmd = self.resolve_command(context, outputs, args)?;
+        let env = self
+            .env
+            .iter()
+            .map(|s| context.resolve_substitutions(s, &self.target_info.name, outputs))
+            .collect::<Result<Vec<String>>>()?;
+        let dir = self
+            .dir
+            .as_ref()
+            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .transpose()?;
+        let log_start = || {
+            info!("[{}] Starting {}", self.target_info.name, cmd);
+        };
+        spawn_command_with_pidfile(
+            cmd.as_str(),
+            env.as_slice(),
+            &pid_path,
+            &log_path,
+            dir.as_deref().map(std::path::Path::new),
+            log_start,
+            true, // Idempotent - don't error if already running
         )
     }
 
