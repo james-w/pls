@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
@@ -449,60 +449,197 @@ impl Runnable for Command {
     // TODO: run_no_deps
 }
 
+/// Build a complete dependency graph for a target, detecting cycles
+fn build_dependency_graph(
+    target_name: &FullyQualifiedName,
+    context: &Context,
+    visited: &mut HashSet<FullyQualifiedName>,
+    rec_stack: &mut HashSet<FullyQualifiedName>,
+    graph: &mut HashMap<FullyQualifiedName, Vec<FullyQualifiedName>>,
+) -> Result<()> {
+    if rec_stack.contains(target_name) {
+        return Err(anyhow!(
+            "Circular dependency detected involving target <{}>",
+            target_name
+        ));
+    }
+
+    if visited.contains(target_name) {
+        return Ok(());
+    }
+
+    let target = context
+        .targets
+        .get(target_name)
+        .ok_or_else(|| anyhow!("Target <{}> not found", target_name))?;
+
+    visited.insert(target_name.clone());
+    rec_stack.insert(target_name.clone());
+
+    let deps = target.target_info().requires.clone();
+    graph.insert(target_name.clone(), deps.clone());
+
+    for dep in deps.iter() {
+        build_dependency_graph(dep, context, visited, rec_stack, graph)?;
+    }
+
+    rec_stack.remove(target_name);
+    Ok(())
+}
+
+/// Topologically sort the dependency graph to get execution order
+/// Returns targets in the order they should be executed (dependencies first)
+fn topological_sort(
+    target_name: &FullyQualifiedName,
+    graph: &HashMap<FullyQualifiedName, Vec<FullyQualifiedName>>,
+) -> Result<Vec<FullyQualifiedName>> {
+    // Build reverse graph: for each node, track what depends on it
+    let mut reverse_graph: HashMap<FullyQualifiedName, Vec<FullyQualifiedName>> = HashMap::new();
+    let mut in_degree: HashMap<FullyQualifiedName, usize> = HashMap::new();
+    let mut all_nodes: HashSet<FullyQualifiedName> = HashSet::new();
+
+    // First pass: collect all nodes and initialize in-degrees based on dependencies
+    for (node, deps) in graph.iter() {
+        all_nodes.insert(node.clone());
+        in_degree.insert(node.clone(), deps.len());
+
+        for dep in deps.iter() {
+            all_nodes.insert(dep.clone());
+        }
+    }
+
+    // Ensure all leaf nodes have in-degree 0
+    for node in all_nodes.iter() {
+        in_degree.entry(node.clone()).or_insert(0);
+    }
+
+    // Second pass: build reverse graph
+    for (node, deps) in graph.iter() {
+        for dep in deps.iter() {
+            reverse_graph
+                .entry(dep.clone())
+                .or_insert_with(Vec::new)
+                .push(node.clone());
+        }
+    }
+
+    // Start with nodes that have no dependencies (in-degree 0)
+    let mut queue: VecDeque<FullyQualifiedName> = all_nodes
+        .iter()
+        .filter(|node| *in_degree.get(*node).unwrap_or(&0) == 0)
+        .cloned()
+        .collect();
+
+    let mut sorted = Vec::new();
+
+    while let Some(node) = queue.pop_front() {
+        sorted.push(node.clone());
+
+        // For each node that depends on this one, decrease its in-degree
+        if let Some(dependents) = reverse_graph.get(&node) {
+            for dependent in dependents.iter() {
+                if let Some(degree) = in_degree.get_mut(dependent) {
+                    *degree -= 1;
+                    if *degree == 0 {
+                        queue.push_back(dependent.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Filter to only include nodes in the dependency tree of target_name
+    let mut reachable = HashSet::new();
+    let mut to_visit = VecDeque::new();
+    to_visit.push_back(target_name.clone());
+
+    while let Some(node) = to_visit.pop_front() {
+        if reachable.insert(node.clone()) {
+            if let Some(deps) = graph.get(&node) {
+                for dep in deps {
+                    to_visit.push_back(dep.clone());
+                }
+            }
+        }
+    }
+
+    Ok(sorted
+        .into_iter()
+        .filter(|n| reachable.contains(n) && n != target_name)
+        .collect())
+}
+
 fn run_required(
     target_info: &TargetInfo,
     context: &Context,
     outputs: &mut OutputsManager,
     cleanup_manager: Arc<Mutex<CleanupManager>>,
 ) -> Result<()> {
-    let resolved_requirements = find_required(target_info, context)?;
+    // Build complete dependency graph with cycle detection
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut graph = HashMap::new();
+
+    build_dependency_graph(
+        &target_info.name,
+        context,
+        &mut visited,
+        &mut rec_stack,
+        &mut graph,
+    )?;
+
+    // Get topologically sorted execution order (dependencies first)
+    let execution_order = topological_sort(&target_info.name, &graph)?;
+
     debug!(
-        "Running required targets for target <{}>: {:?}",
-        target_info.name,
-        resolved_requirements
-            .iter()
-            .map(|t| t.target_info().name.clone())
-            .collect::<Vec<_>>()
+        "Executing dependencies for target <{}>: {:?}",
+        target_info.name, execution_order
     );
-    for required_target in resolved_requirements.clone().into_iter() {
-        match (
-            required_target.as_buildable(),
-            required_target
-                .command_info()
-                .map(|c| c.daemon)
-                .unwrap_or(false),
-            required_target.as_startable(),
-            required_target.as_runnable(),
-        ) {
-            (Some(buildable), _, _, _) => {
+
+    // Execute each dependency exactly once in the correct order
+    // Use *_no_deps methods to prevent recursive dependency execution
+    for target_name in execution_order {
+        let target = context
+            .targets
+            .get(&target_name)
+            .ok_or_else(|| anyhow!("Target <{}> not found", target_name))?;
+
+        match target {
+            // Artifacts: call build without running sub-dependencies
+            Target::Artifact(artifact) => {
                 debug!(
-                    "Building required target <{}> for target <{}>",
-                    required_target.target_info().name,
-                    required_target.target_info().name
+                    "Building required artifact <{}>",
+                    artifact.target_info().name
                 );
-                buildable.build(context, outputs, cleanup_manager.clone())?;
+                artifact.build_target_inner(
+                    context,
+                    outputs,
+                    cleanup_manager.clone(),
+                    true,  // check_should_rerun
+                    false, // run_deps (we're handling deps via topological sort)
+                )?;
             }
-            (None, true, None, _) => panic!(
-                "Don't know how to start as it is a daemon with as_startable None {:?}",
-                required_target
-            ),
-            (None, true, Some(startable), _) => {
-                debug!(
-                    "Starting required target <{}> for target <{}>",
-                    required_target.target_info().name,
-                    required_target.target_info().name
-                );
-                startable.start_if_needed(context, outputs, cleanup_manager.clone(), vec![])?;
+            // Commands: handle daemon vs regular
+            Target::Command(command) => {
+                let is_daemon = command.command_info().daemon;
+                if is_daemon {
+                    debug!("Starting required daemon <{}>", command.target_info().name);
+                    command.inner_as_startable().start_if_needed(
+                        context,
+                        outputs,
+                        cleanup_manager.clone(),
+                        vec![],
+                    )?;
+                } else {
+                    debug!("Running required command <{}>", command.target_info().name);
+                    command.inner_as_runnable().run_no_deps(
+                        context,
+                        outputs,
+                        cleanup_manager.clone(),
+                        vec![],
+                    )?;
+                }
             }
-            (None, false, _, Some(runnable)) => {
-                debug!(
-                    "Running required target <{}> for target <{}>",
-                    required_target.target_info().name,
-                    required_target.target_info().name
-                );
-                runnable.run(context, outputs, cleanup_manager.clone(), vec![])?;
-            }
-            _ => panic!("Don't know how to build {:?}", required_target),
         }
     }
     Ok(())
