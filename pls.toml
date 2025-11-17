@@ -48,3 +48,14 @@ description = "Run cargo check"
 command = "echo 'CI checks complete'"
 description = "Run all CI checks before pushing"
 requires = ["fmt", "test", "clippy", "check"]
+
+[command.exec.build]
+extends = "cargo"
+default_args = "build"
+description = "Build the binary"
+updates_files = ["target/debug/pls"]
+
+[command.exec.local-install]
+command = "sh -c 'install target/debug/pls ~/.local/bin/pls'"
+description = "Copy binary to local install dir"
+requires = ["build"]
