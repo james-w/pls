@@ -523,7 +523,7 @@ fn topological_sort(
         for dep in deps.iter() {
             reverse_graph
                 .entry(dep.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(node.clone());
         }
     }
