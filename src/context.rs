@@ -49,7 +49,7 @@ impl Variable {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Context {
     pub variables: HashMap<FullyQualifiedName, HashMap<String, String>>,
     pub globals: HashMap<String, String>,
@@ -57,6 +57,19 @@ pub struct Context {
     pub targets: HashMap<FullyQualifiedName, Target>,
 
     pub config_path: String,
+    pub project_root: std::path::PathBuf,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self {
+            variables: HashMap::new(),
+            globals: HashMap::new(),
+            targets: HashMap::new(),
+            config_path: String::new(),
+            project_root: std::path::PathBuf::new(),
+        }
+    }
 }
 
 fn get_lookup_name(name: String, default_tag: String) -> FullyQualifiedName {
@@ -515,8 +528,13 @@ impl ConfigWrapper {
 
 impl Context {
     pub fn from_config(config: &Config, path: String) -> Result<Context> {
+        let project_root = std::path::PathBuf::from(&path)
+            .parent()
+            .ok_or_else(|| anyhow!("Config path has no parent directory"))?
+            .to_path_buf();
         let mut context = Context {
             config_path: path,
+            project_root,
             ..Default::default()
         };
         if let Some(ref globals) = config.globals {
@@ -650,6 +668,22 @@ impl Context {
         outputs: &OutputsManager,
     ) -> Result<String> {
         self.resolve_substitutions_inner(command, this_target_name, outputs, None, &None)
+    }
+
+    /// Resolve a directory path, making it absolute relative to project root if it's relative
+    pub fn resolve_dir(
+        &self,
+        dir: &str,
+        this_target_name: &FullyQualifiedName,
+        outputs: &OutputsManager,
+    ) -> Result<std::path::PathBuf> {
+        let resolved = self.resolve_substitutions(dir, this_target_name, outputs)?;
+        let path = std::path::Path::new(&resolved);
+        Ok(if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.project_root.join(path)
+        })
     }
 
     fn resolve_substitutions_inner(

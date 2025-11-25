@@ -94,18 +94,14 @@ impl Runnable for ExecCommand {
         let dir = self
             .dir
             .as_ref()
-            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         debug!(
             "Running target <{}> with command <{}>",
             self.target_info.name, command
         );
         info!("[{}] Running {}", self.target_info.name, command);
-        run_command_with_env(
-            command.as_str(),
-            env.as_slice(),
-            dir.as_deref().map(std::path::Path::new),
-        )
+        run_command_with_env(command.as_str(), env.as_slice(), dir.as_deref())
     }
 }
 
@@ -131,7 +127,7 @@ impl Startable for ExecCommand {
         let dir = self
             .dir
             .as_ref()
-            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         let log_start = || {
             info!("[{}] Starting {}", self.target_info.name, cmd);
@@ -141,7 +137,7 @@ impl Startable for ExecCommand {
             env.as_slice(),
             &pid_path,
             &log_path,
-            dir.as_deref().map(std::path::Path::new),
+            dir.as_deref(),
             log_start,
             false, // Not idempotent - error if already running
         )
@@ -168,7 +164,7 @@ impl Startable for ExecCommand {
         let dir = self
             .dir
             .as_ref()
-            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         let log_start = || {
             info!("[{}] Starting {}", self.target_info.name, cmd);
@@ -178,7 +174,7 @@ impl Startable for ExecCommand {
             env.as_slice(),
             &pid_path,
             &log_path,
-            dir.as_deref().map(std::path::Path::new),
+            dir.as_deref(),
             log_start,
             true, // Idempotent - don't error if already running
         )

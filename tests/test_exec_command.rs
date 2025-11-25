@@ -146,3 +146,37 @@ fn test_dir_default_is_cwd() {
         .success()
         .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
 }
+
+#[test]
+fn test_dir_relative_to_project_root_not_cwd() {
+    let config_src = r#"
+        [command.exec.pwd_in_target_dir]
+        command = "pwd"
+        dir = "target_dir"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    // Create both a subdirectory to run from and the target directory at the project root
+    test_context
+        .workdir
+        .child("run_from_here")
+        .create_dir_all()
+        .unwrap();
+    test_context
+        .workdir
+        .child("target_dir")
+        .create_dir_all()
+        .unwrap();
+
+    // Run pls from the subdirectory, but with -C pointing to project root
+    // The dir should resolve to project_root/target_dir, NOT run_from_here/target_dir
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("pwd_in_target_dir");
+
+    let expected_path = test_context.workdir.path().join("target_dir");
+    cmd.assert()
+        .success()
+        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+}

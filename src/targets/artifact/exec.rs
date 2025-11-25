@@ -75,17 +75,13 @@ impl Buildable for ExecArtifact {
         let dir = self
             .dir
             .as_ref()
-            .map(|d| context.resolve_substitutions(d, &self.target_info.name, outputs))
+            .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         debug!(
             "Building exec artifact for target <{}> with command <{}>",
             self.target_info.name, cmd
         );
         info!("[{}] Building with command {}", self.target_info.name, cmd);
-        run_command_with_env(
-            &cmd,
-            env.as_slice(),
-            dir.as_deref().map(std::path::Path::new),
-        )
+        run_command_with_env(&cmd, env.as_slice(), dir.as_deref())
     }
 }
