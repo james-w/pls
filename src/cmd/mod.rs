@@ -47,6 +47,7 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Run the specified target
+    #[command(alias = "r")]
     Run(RunCommand),
 
     /// Start a daemon
@@ -59,6 +60,7 @@ pub enum Commands {
     Build(BuildCommand),
 
     /// List available targets
+    #[command(alias = "ls")]
     List(ListCommand),
 
     /// Get the status of a daemon

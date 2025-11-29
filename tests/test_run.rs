@@ -46,3 +46,21 @@ fn test_error_when_ambiguous() {
         "Target <copy> is ambiguous, possible values are <artifact.container_image.copy, artifact.exec.copy>",
     ));
 }
+
+#[test]
+fn test_run_alias_r() {
+    let config_src = r#"
+        [command.exec.echo]
+        command = "echo hello"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("r").arg("echo");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("hello"));
+}
