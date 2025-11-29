@@ -96,7 +96,12 @@ fn test_dir_option() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_subdir");
 
-    let expected_path = test_context.workdir.path().join("subdir");
+    let expected_path = test_context
+        .workdir
+        .path()
+        .join("subdir")
+        .canonicalize()
+        .unwrap();
     cmd.assert()
         .success()
         .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
@@ -122,7 +127,12 @@ fn test_dir_with_variable() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_var_dir");
 
-    let expected_path = test_context.workdir.path().join("subdir");
+    let expected_path = test_context
+        .workdir
+        .path()
+        .join("subdir")
+        .canonicalize()
+        .unwrap();
     cmd.assert()
         .success()
         .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
@@ -141,7 +151,7 @@ fn test_dir_default_is_cwd() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_no_dir");
 
-    let expected_path = test_context.workdir.path();
+    let expected_path = test_context.workdir.path().canonicalize().unwrap();
     cmd.assert()
         .success()
         .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
@@ -175,7 +185,12 @@ fn test_dir_relative_to_project_root_not_cwd() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_target_dir");
 
-    let expected_path = test_context.workdir.path().join("target_dir");
+    let expected_path = test_context
+        .workdir
+        .path()
+        .join("target_dir")
+        .canonicalize()
+        .unwrap();
     cmd.assert()
         .success()
         .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
