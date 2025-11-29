@@ -254,7 +254,12 @@ fn test_artifact_with_dir_option() {
     let output_file = test_context.workdir.child("subdir").child("output.txt");
     output_file.assert(predicate::path::exists());
 
-    let expected_path = test_context.workdir.path().join("subdir").canonicalize().unwrap();
+    let expected_path = test_context
+        .workdir
+        .path()
+        .join("subdir")
+        .canonicalize()
+        .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
     assert_eq!(contents.trim(), expected_path.to_str().unwrap());
 }
@@ -285,7 +290,12 @@ fn test_artifact_dir_with_variable() {
     let output_file = test_context.workdir.child("subdir").child("output.txt");
     output_file.assert(predicate::path::exists());
 
-    let expected_path = test_context.workdir.path().join("subdir").canonicalize().unwrap();
+    let expected_path = test_context
+        .workdir
+        .path()
+        .join("subdir")
+        .canonicalize()
+        .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
     assert_eq!(contents.trim(), expected_path.to_str().unwrap());
 }
