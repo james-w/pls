@@ -146,11 +146,20 @@ impl Execute for WatchCommand {
                 }
                 Ok(())
             }
-            CommandLookupResult::NotFound => Err(anyhow!(
-                "Target <{}> not found in config file <{}>",
-                self.name,
-                context.config_path
-            )),
+            CommandLookupResult::NotFound => {
+                let suggestions = context.get_suggestions(&self.name);
+                let mut error_msg = format!(
+                    "Target <{}> not found in config file <{}>",
+                    self.name, context.config_path
+                );
+                if !suggestions.is_empty() {
+                    error_msg.push_str(&format!(
+                        "\n\nDid you mean one of these?\n  {}",
+                        suggestions.join("\n  ")
+                    ));
+                }
+                Err(anyhow!(error_msg))
+            }
             CommandLookupResult::Duplicates(ref mut duplicates) => {
                 duplicates.sort();
                 Err(anyhow!(
