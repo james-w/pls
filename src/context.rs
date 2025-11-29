@@ -15,6 +15,7 @@ use crate::{
     name::FullyQualifiedName,
     outputs::OutputsManager,
     shell::escape_string,
+    similarity::levenshtein_distance,
     target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
     targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand, Group},
 };
@@ -823,6 +824,93 @@ impl Context {
                 CommandLookupResult::NotFound
             }
         }
+    }
+
+    /// Get suggestions for similar target names based on multiple criteria
+    /// Returns up to 5 suggestions, prioritized by match quality
+    pub fn get_suggestions(&self, name: &str) -> Vec<String> {
+        let input_len = name.len();
+        let input_lower = name.to_lowercase();
+
+        #[derive(Debug, PartialEq, Eq)]
+        enum MatchType {
+            Substring,    // Priority 0: substring/superstring match
+            EditDistance, // Priority 1: close edit distance
+            Description,  // Priority 2: matches word in description
+        }
+
+        let mut candidates: Vec<(String, MatchType, usize)> = self
+            .targets
+            .iter()
+            .filter_map(|(key, target)| {
+                let full_name = key.to_string();
+                let short_name = &key.name;
+                let full_name_lower = full_name.to_lowercase();
+                let short_name_lower = short_name.to_lowercase();
+
+                // Check for substring matches (high priority)
+                if full_name_lower.contains(&input_lower) || input_lower.contains(&full_name_lower)
+                {
+                    return Some((full_name.clone(), MatchType::Substring, 0));
+                }
+                if short_name_lower.contains(&input_lower)
+                    || input_lower.contains(&short_name_lower)
+                {
+                    return Some((full_name.clone(), MatchType::Substring, 0));
+                }
+
+                // Check edit distance (medium priority)
+                let full_distance = levenshtein_distance(name, &full_name);
+                let short_distance = levenshtein_distance(name, short_name);
+                let distance = std::cmp::min(full_distance, short_distance);
+
+                let max_distance = if input_len <= 3 {
+                    1 // Very short strings: only 1 char difference
+                } else if input_len <= 6 {
+                    2 // Medium strings: up to 2 chars difference
+                } else {
+                    3 // Longer strings: up to 3 chars difference
+                };
+
+                if distance <= max_distance {
+                    return Some((full_name.clone(), MatchType::EditDistance, distance));
+                }
+
+                // Check description matches (lower priority)
+                if let Some(desc) = &target.target_info().description {
+                    let desc_lower = desc.to_lowercase();
+                    // Check if input matches any word in the description
+                    if desc_lower.split_whitespace().any(|word| {
+                        word.trim_matches(|c: char| !c.is_alphanumeric())
+                            .contains(&input_lower)
+                    }) {
+                        return Some((full_name.clone(), MatchType::Description, 0));
+                    }
+                }
+
+                None
+            })
+            .collect();
+
+        // Sort by: match type (priority), then distance
+        candidates.sort_by(|a, b| {
+            let type_order = |t: &MatchType| match t {
+                MatchType::Substring => 0,
+                MatchType::EditDistance => 1,
+                MatchType::Description => 2,
+            };
+
+            type_order(&a.1).cmp(&type_order(&b.1)).then(a.2.cmp(&b.2))
+        });
+
+        // Remove duplicates and return up to 5 suggestions
+        let mut seen = std::collections::HashSet::new();
+        candidates
+            .iter()
+            .filter(|(name, _, _)| seen.insert(name.clone()))
+            .take(5)
+            .map(|(name, _, _)| name.clone())
+            .collect()
     }
 }
 

@@ -289,3 +289,28 @@ fn test_artifact_dir_with_variable() {
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
     assert_eq!(contents.trim(), expected_path.to_str().unwrap());
 }
+
+#[test]
+fn test_build_suggests_similar_targets_on_typo() {
+    let config_src = r#"
+        [artifact.exec.compile]
+        command = "echo compile"
+        updates_paths = ["output"]
+
+        [artifact.exec.package]
+        command = "echo package"
+        updates_paths = ["package.tar"]
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("build").arg("compil");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Target <compil> not found"))
+        .stderr(predicate::str::contains("Did you mean one of these?"))
+        .stderr(predicate::str::contains("compile"));
+}

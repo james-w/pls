@@ -18,6 +18,7 @@ mod name;
 mod outputs;
 mod rand;
 mod shell;
+mod similarity;
 mod target;
 mod targets;
 mod validate;

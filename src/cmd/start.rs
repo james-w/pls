@@ -34,11 +34,18 @@ impl Execute for StartCommand {
                 }
             },
             CommandLookupResult::NotFound => {
-                Err(anyhow!(
+                let suggestions = context.get_suggestions(&self.name);
+                let mut error_msg = format!(
                     "Target <{}> not found in config file <{}>",
-                    self.name,
-                    context.config_path
-                ))
+                    self.name, context.config_path
+                );
+                if !suggestions.is_empty() {
+                    error_msg.push_str(&format!(
+                        "\n\nDid you mean one of these?\n  {}",
+                        suggestions.join("\n  ")
+                    ));
+                }
+                Err(anyhow!(error_msg))
             },
             CommandLookupResult::Duplicates(duplicates) => {
                 Err(anyhow!(
