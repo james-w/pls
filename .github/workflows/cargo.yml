@@ -51,5 +51,5 @@ jobs:
       run: cargo check
     - name: Validate cargo-dist config
       run: |
-        cargo install cargo-dist --version 0.30.2
+        curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.2/cargo-dist-installer.sh | sh
         dist plan
