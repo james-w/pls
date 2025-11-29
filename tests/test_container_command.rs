@@ -3,6 +3,7 @@ use predicates::prelude::*;
 
 mod common;
 
+#[test_with::executable(podman)]
 #[test]
 fn test_container_command() {
     let config_src = r#"
@@ -20,6 +21,7 @@ fn test_container_command() {
     cmd.assert().success().stdout(predicate::eq("hello").trim());
 }
 
+#[test_with::executable(podman)]
 #[test]
 fn test_extends() {
     let config_src = r#"
