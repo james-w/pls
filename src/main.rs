@@ -83,7 +83,53 @@ pub fn main() {
         .format(|buf, record| writeln!(buf, "{}", record.args()))
         .filter_level(log::LevelFilter::Info)
         .build();
-    let args = Args::parse();
+
+    // Try to parse args, catching errors to provide helpful suggestions
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            // Check if this is an invalid subcommand error using ErrorKind
+            if matches!(e.kind(), clap::error::ErrorKind::InvalidSubcommand) {
+                // Extract the unknown command from the error message
+                // Error format: "error: unrecognized subcommand 'test'"
+                let error_msg = e.to_string();
+                if let Some(start) = error_msg.find("'") {
+                    if let Some(end) = error_msg[start + 1..].find("'") {
+                        let unknown_cmd = &error_msg[start + 1..start + 1 + end];
+
+                        if !unknown_cmd.is_empty() {
+                            // Try to load config and check if this is a valid target
+                            if let Some(config_path) = find_config_file() {
+                                if let Ok(config) = Config::load_and_validate(&config_path) {
+                                    if let Ok(context) = Context::from_config(
+                                        &config,
+                                        config_path.display().to_string(),
+                                    ) {
+                                        // Check if the unknown command is a valid target
+                                        if context.targets.keys().any(|key| {
+                                            key.name == unknown_cmd
+                                                || key.to_string() == unknown_cmd
+                                        }) {
+                                            eprintln!("{}", e);
+                                            eprintln!(
+                                                "\nHint: Did you mean 'pls run {}'?",
+                                                unknown_cmd
+                                            );
+                                            eprintln!("      Target '{}' exists but must be run with the 'run' command.", unknown_cmd);
+                                            std::process::exit(2);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If we couldn't provide a hint, just print the original error
+            e.exit();
+        }
+    };
+
     let debug_logger = if args.debug {
         Some(
             env_logger::builder()
