@@ -1,0 +1,1 @@
+- Always run `pls run ci` before committing
