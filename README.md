@@ -2,6 +2,26 @@
 
 `pls` runs tasks; kind of like Make, but more modern.
 
+## Installation
+
+### From pre-built binaries (Recommended)
+
+#### Linux/macOS
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/james-w/pls/releases/latest/download/pls-installer.sh | sh
+```
+
+#### Manual download
+Download pre-built binaries from [GitHub Releases](https://github.com/james-w/pls/releases)
+
+### From source
+```bash
+cargo install --git https://github.com/james-w/pls --locked
+```
+
+**Note**: Windows is not currently supported due to Unix-specific dependencies.
+
 ## Features
 
 ### Runner

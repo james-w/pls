@@ -2,6 +2,12 @@
 name = "pls"
 version = "0.1.0"
 edition = "2021"
+description = "A modern task runner - like Make, but better"
+documentation = "https://github.com/james-w/pls"
+homepage = "https://github.com/james-w/pls"
+repository = "https://github.com/james-w/pls"
+license = "GPL-3.0-only"
+authors = ["James Westby <james@jameswestby.net>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,3 +34,8 @@ assert_cmd = ">=2.0.14"
 assert_fs = ">=1.1.1"
 predicates = ">=3.1.0"
 proptest = ">=1.5.0"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
