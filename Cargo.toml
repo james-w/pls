@@ -34,7 +34,7 @@ assert_cmd = ">=2.0.14"
 assert_fs = ">=1.1.1"
 predicates = ">=3.1.0"
 proptest = ">=1.5.0"
-test-with = { version = ">=0.14.0", default-features = false, features = ["executable"] }
+test-with = { version = "0.14", default-features = false, features = ["executable"] }
 
 # The profile that 'dist' will build with
 [profile.dist]
