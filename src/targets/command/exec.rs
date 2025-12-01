@@ -140,7 +140,12 @@ impl Startable for ExecCommand {
             .transpose()?;
         let log_start = || {
             if let Some(ref path) = dir {
-                info!("[{}] Starting {} (in {})", self.target_info.name, cmd, path.display());
+                info!(
+                    "[{}] Starting {} (in {})",
+                    self.target_info.name,
+                    cmd,
+                    path.display()
+                );
             } else {
                 info!("[{}] Starting {}", self.target_info.name, cmd);
             }
@@ -181,7 +186,12 @@ impl Startable for ExecCommand {
             .transpose()?;
         let log_start = || {
             if let Some(ref path) = dir {
-                info!("[{}] Starting {} (in {})", self.target_info.name, cmd, path.display());
+                info!(
+                    "[{}] Starting {} (in {})",
+                    self.target_info.name,
+                    cmd,
+                    path.display()
+                );
             } else {
                 info!("[{}] Starting {}", self.target_info.name, cmd);
             }
