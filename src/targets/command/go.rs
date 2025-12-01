@@ -4,11 +4,11 @@ use anyhow::Result;
 use validator::Validate;
 
 use crate::cleanup::CleanupManager;
+use crate::command_builder::CommandBuilder;
 use crate::config::{ExecCommand as ConfigExecCommand, GoCommand as ConfigGoCommand};
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
-use crate::shell::escape_string;
 use crate::target::{CommandInfo, Runnable, Startable, StatusResult, TargetInfo};
 use crate::targets::command::exec::ExecCommand;
 
@@ -86,6 +86,14 @@ impl GoCommand {
             .args
             .clone()
             .or_else(|| base.and_then(|b| b.args.clone()));
+
+        // Validate that subcommand is present
+        if subcommand.is_none() {
+            panic!(
+                "Go command '{}' must specify a subcommand (e.g., build, test, run, mod)",
+                target_info.name
+            );
+        }
 
         // Build go command string from merged fields
         let command = build_go_command_string(
@@ -170,77 +178,35 @@ fn build_go_command_string(
     count: Option<i32>,
     args: &Option<String>,
 ) -> Result<String, shlex::QuoteError> {
-    let mut parts = vec!["go".to_string()];
+    let mut builder = CommandBuilder::new("go")
+        .subcommand(subcommand)?
+        .arg(mod_operation)? // For "go mod <operation>"
+        .flag("-v", verbose.unwrap_or(false))
+        .flag_with_value("-o", output)?
+        .array_flag_equals("-tags", tags, ",")?
+        .flag_equals_value("-ldflags", ldflags)?
+        .flag("-race", race.unwrap_or(false))
+        .flag("-cover", cover.unwrap_or(false));
 
-    if let Some(subcmd) = subcommand {
-        parts.push(escape_string(subcmd)?);
+    // Test-specific flags (only for test/bench subcommands)
+    let is_test_command = subcommand
+        .as_ref()
+        .map(|s| s == "test" || s == "bench")
+        .unwrap_or(false);
 
-        // Special handling for mod
-        if subcmd == "mod" {
-            if let Some(op) = mod_operation {
-                parts.push(escape_string(op)?);
-            }
+    if is_test_command {
+        builder = builder
+            .flag_equals_value("-run", run_pattern)?
+            .flag_equals_value("-bench", bench)?
+            .flag_equals_value("-timeout", timeout)?
+            .flag("-short", short.unwrap_or(false));
+
+        if let Some(c) = count {
+            builder = builder.flag_equals_value("-count", &Some(c.to_string()))?;
         }
     }
 
-    // Common flags
-    if verbose.unwrap_or(false) {
-        parts.push("-v".to_string());
-    }
-
-    // Build flags
-    if let Some(out) = output {
-        parts.push(format!("-o {}", escape_string(out)?));
-    }
-
-    if let Some(tags_vec) = tags {
-        if !tags_vec.is_empty() {
-            let escaped_tags: Result<Vec<_>, _> = tags_vec.iter()
-                .map(|t| escape_string(t))
-                .collect();
-            parts.push(format!("-tags={}", escaped_tags?.join(",")));
-        }
-    }
-
-    if let Some(flags) = ldflags {
-        parts.push(format!("-ldflags={}", escape_string(flags)?));
-    }
-
-    if race.unwrap_or(false) {
-        parts.push("-race".to_string());
-    }
-
-    if cover.unwrap_or(false) {
-        parts.push("-cover".to_string());
-    }
-
-    // Test flags
-    if let Some(pattern) = run_pattern {
-        parts.push(format!("-run={}", escape_string(pattern)?));
-    }
-
-    if let Some(b) = bench {
-        parts.push(format!("-bench={}", escape_string(b)?));
-    }
-
-    if let Some(t) = timeout {
-        parts.push(format!("-timeout={}", escape_string(t)?));
-    }
-
-    if short.unwrap_or(false) {
-        parts.push("-short".to_string());
-    }
-
-    if let Some(c) = count {
-        parts.push(format!("-count={}", c));
-    }
-
-    // Extra args
-    if let Some(extra) = args {
-        parts.push(extra.clone());
-    }
-
-    Ok(parts.join(" "))
+    Ok(builder.raw_args(args).build())
 }
 
 // Pure delegation to inner ExecCommand

@@ -4,11 +4,11 @@ use anyhow::Result;
 use validator::Validate;
 
 use crate::cleanup::CleanupManager;
+use crate::command_builder::CommandBuilder;
 use crate::config::{CargoCommand as ConfigCargoCommand, ExecCommand as ConfigExecCommand};
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
-use crate::shell::escape_string;
 use crate::target::{CommandInfo, Runnable, Startable, StatusResult, TargetInfo};
 use crate::targets::command::exec::ExecCommand;
 
@@ -61,6 +61,14 @@ impl CargoCommand {
             .args
             .clone()
             .or_else(|| base.and_then(|b| b.args.clone()));
+
+        // Validate that subcommand is present
+        if subcommand.is_none() {
+            panic!(
+                "Cargo command '{}' must specify a subcommand (e.g., build, test, check, run)",
+                target_info.name
+            );
+        }
 
         // Build cargo command string from merged fields
         let command = build_cargo_command_string(
@@ -123,41 +131,24 @@ fn build_cargo_command_string(
     no_default_features: Option<bool>,
     args: &Option<String>,
 ) -> Result<String, shlex::QuoteError> {
-    let mut parts = vec!["cargo".to_string()];
+    let mut builder = CommandBuilder::new("cargo")
+        .subcommand(subcommand)?
+        .flag_with_value("--package", package)?
+        .flag("--release", release.unwrap_or(false));
 
-    if let Some(subcmd) = subcommand {
-        parts.push(escape_string(subcmd)?);
-    }
-
-    if let Some(pkg) = package {
-        parts.push(format!("--package {}", escape_string(pkg)?));
-    }
-
-    if release.unwrap_or(false) {
-        parts.push("--release".to_string());
-    }
-
+    // all_features overrides other feature flags
     if all_features.unwrap_or(false) {
-        parts.push("--all-features".to_string());
+        builder = builder.flag("--all-features", true);
     } else {
-        if no_default_features.unwrap_or(false) {
-            parts.push("--no-default-features".to_string());
-        }
-        if let Some(feats) = features {
-            if !feats.is_empty() {
-                let escaped_features: Result<Vec<_>, _> = feats.iter()
-                    .map(|f| escape_string(f))
-                    .collect();
-                parts.push(format!("--features {}", escaped_features?.join(",")));
-            }
-        }
+        builder = builder
+            .flag(
+                "--no-default-features",
+                no_default_features.unwrap_or(false),
+            )
+            .array_flag("--features ", features, ",")?;
     }
 
-    if let Some(extra) = args {
-        parts.push(extra.clone());
-    }
-
-    Ok(parts.join(" "))
+    Ok(builder.raw_args(args).build())
 }
 
 // Pure delegation to inner ExecCommand
