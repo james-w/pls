@@ -8,6 +8,7 @@ use crate::config::{CargoArtifact as ConfigCargoArtifact, ExecArtifact as Config
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
+use crate::shell::escape_string;
 use crate::target::{ArtifactInfo, Buildable, TargetInfo};
 use crate::targets::artifact::exec::ExecArtifact;
 
@@ -36,7 +37,8 @@ impl CargoArtifact {
             defn.all_features,
             defn.no_default_features,
             &defn.args,
-        );
+        )
+        .expect("Failed to escape cargo command arguments");
 
         // SMART DEFAULT 1: Auto-detect binary paths
         if artifact_info.updates_paths.is_none() && defn.bin.is_some() {
@@ -98,15 +100,15 @@ fn build_cargo_command_string(
     all_features: Option<bool>,
     no_default_features: Option<bool>,
     args: &Option<String>,
-) -> String {
+) -> Result<String, shlex::QuoteError> {
     let mut parts = vec!["cargo".to_string()];
 
     if let Some(subcmd) = subcommand {
-        parts.push(subcmd.clone());
+        parts.push(escape_string(subcmd)?);
     }
 
     if let Some(pkg) = package {
-        parts.push(format!("--package {}", pkg));
+        parts.push(format!("--package {}", escape_string(pkg)?));
     }
 
     if release.unwrap_or(false) {
@@ -115,13 +117,17 @@ fn build_cargo_command_string(
 
     if all_features.unwrap_or(false) {
         parts.push("--all-features".to_string());
-    } else if no_default_features.unwrap_or(false) {
-        parts.push("--no-default-features".to_string());
-    }
-
-    if let Some(feats) = features {
-        if !feats.is_empty() {
-            parts.push(format!("--features {}", feats.join(",")));
+    } else {
+        if no_default_features.unwrap_or(false) {
+            parts.push("--no-default-features".to_string());
+        }
+        if let Some(feats) = features {
+            if !feats.is_empty() {
+                let escaped_features: Result<Vec<_>, _> = feats.iter()
+                    .map(|f| escape_string(f))
+                    .collect();
+                parts.push(format!("--features {}", escaped_features?.join(",")));
+            }
         }
     }
 
@@ -129,7 +135,7 @@ fn build_cargo_command_string(
         parts.push(extra.clone());
     }
 
-    parts.join(" ")
+    Ok(parts.join(" "))
 }
 
 // Pure delegation to inner ExecArtifact

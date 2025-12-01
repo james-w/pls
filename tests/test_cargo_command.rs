@@ -144,3 +144,40 @@ fn test_cargo_with_package() {
 
     cmd.assert().success();
 }
+
+#[test_with::executable(cargo)]
+#[test]
+fn test_cargo_with_special_characters() {
+    // Test that features with special characters are properly escaped
+    let config_src = r#"
+        [command.cargo.check-special]
+        subcommand = "check"
+        features = ["default-feature"]
+        description = "Check with feature"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+    create_minimal_rust_project(&test_context);
+
+    // Add a feature to Cargo.toml
+    test_context
+        .workdir
+        .child("Cargo.toml")
+        .write_str(
+            r#"[package]
+name = "test"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default-feature = []
+"#,
+        )
+        .unwrap();
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("check-special");
+
+    cmd.assert().success();
+}

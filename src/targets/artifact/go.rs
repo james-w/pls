@@ -8,6 +8,7 @@ use crate::config::{ExecArtifact as ConfigExecArtifact, GoArtifact as ConfigGoAr
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
+use crate::shell::escape_string;
 use crate::target::{ArtifactInfo, Buildable, TargetInfo};
 use crate::targets::artifact::exec::ExecArtifact;
 
@@ -36,7 +37,8 @@ impl GoArtifact {
             &defn.ldflags,
             defn.race,
             &defn.args,
-        );
+        )
+        .expect("Failed to escape go command arguments");
 
         // SMART DEFAULT 1: Auto-detect binary paths
         if artifact_info.updates_paths.is_none() {
@@ -96,11 +98,11 @@ fn build_go_command_string(
     ldflags: &Option<String>,
     race: Option<bool>,
     args: &Option<String>,
-) -> String {
+) -> Result<String, shlex::QuoteError> {
     let mut parts = vec!["go".to_string()];
 
     if let Some(subcmd) = subcommand {
-        parts.push(subcmd.clone());
+        parts.push(escape_string(subcmd)?);
     }
 
     // Common flags
@@ -110,17 +112,20 @@ fn build_go_command_string(
 
     // Build flags
     if let Some(out) = output {
-        parts.push(format!("-o {}", out));
+        parts.push(format!("-o {}", escape_string(out)?));
     }
 
     if let Some(tags_vec) = tags {
         if !tags_vec.is_empty() {
-            parts.push(format!("-tags={}", tags_vec.join(",")));
+            let escaped_tags: Result<Vec<_>, _> = tags_vec.iter()
+                .map(|t| escape_string(t))
+                .collect();
+            parts.push(format!("-tags={}", escaped_tags?.join(",")));
         }
     }
 
     if let Some(flags) = ldflags {
-        parts.push(format!("-ldflags={}", flags));
+        parts.push(format!("-ldflags={}", escape_string(flags)?));
     }
 
     if race.unwrap_or(false) {
@@ -132,7 +137,7 @@ fn build_go_command_string(
         parts.push(extra.clone());
     }
 
-    parts.join(" ")
+    Ok(parts.join(" "))
 }
 
 // Pure delegation to inner ExecArtifact

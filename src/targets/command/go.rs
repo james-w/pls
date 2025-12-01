@@ -8,6 +8,7 @@ use crate::config::{ExecCommand as ConfigExecCommand, GoCommand as ConfigGoComma
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
+use crate::shell::escape_string;
 use crate::target::{CommandInfo, Runnable, Startable, StatusResult, TargetInfo};
 use crate::targets::command::exec::ExecCommand;
 
@@ -102,7 +103,8 @@ impl GoCommand {
             short,
             count,
             &args,
-        );
+        )
+        .expect("Failed to escape go command arguments");
 
         // Merge env (base first, then current)
         let mut env = vec![];
@@ -167,16 +169,16 @@ fn build_go_command_string(
     short: Option<bool>,
     count: Option<i32>,
     args: &Option<String>,
-) -> String {
+) -> Result<String, shlex::QuoteError> {
     let mut parts = vec!["go".to_string()];
 
     if let Some(subcmd) = subcommand {
-        parts.push(subcmd.clone());
+        parts.push(escape_string(subcmd)?);
 
         // Special handling for mod
         if subcmd == "mod" {
             if let Some(op) = mod_operation {
-                parts.push(op.clone());
+                parts.push(escape_string(op)?);
             }
         }
     }
@@ -188,17 +190,20 @@ fn build_go_command_string(
 
     // Build flags
     if let Some(out) = output {
-        parts.push(format!("-o {}", out));
+        parts.push(format!("-o {}", escape_string(out)?));
     }
 
     if let Some(tags_vec) = tags {
         if !tags_vec.is_empty() {
-            parts.push(format!("-tags={}", tags_vec.join(",")));
+            let escaped_tags: Result<Vec<_>, _> = tags_vec.iter()
+                .map(|t| escape_string(t))
+                .collect();
+            parts.push(format!("-tags={}", escaped_tags?.join(",")));
         }
     }
 
     if let Some(flags) = ldflags {
-        parts.push(format!("-ldflags={}", flags));
+        parts.push(format!("-ldflags={}", escape_string(flags)?));
     }
 
     if race.unwrap_or(false) {
@@ -211,15 +216,15 @@ fn build_go_command_string(
 
     // Test flags
     if let Some(pattern) = run_pattern {
-        parts.push(format!("-run={}", pattern));
+        parts.push(format!("-run={}", escape_string(pattern)?));
     }
 
     if let Some(b) = bench {
-        parts.push(format!("-bench={}", b));
+        parts.push(format!("-bench={}", escape_string(b)?));
     }
 
     if let Some(t) = timeout {
-        parts.push(format!("-timeout={}", t));
+        parts.push(format!("-timeout={}", escape_string(t)?));
     }
 
     if short.unwrap_or(false) {
@@ -235,7 +240,7 @@ fn build_go_command_string(
         parts.push(extra.clone());
     }
 
-    parts.join(" ")
+    Ok(parts.join(" "))
 }
 
 // Pure delegation to inner ExecCommand
