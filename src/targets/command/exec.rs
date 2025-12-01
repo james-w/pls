@@ -97,10 +97,19 @@ impl Runnable for ExecCommand {
             .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         debug!(
-            "Running target <{}> with command <{}>",
-            self.target_info.name, command
+            "Running target <{}> with command <{}> in dir <{:?}>",
+            self.target_info.name, command, dir
         );
-        info!("[{}] Running {}", self.target_info.name, command);
+        if let Some(ref path) = dir {
+            info!(
+                "[{}] Running {} (in {})",
+                self.target_info.name,
+                command,
+                path.display()
+            );
+        } else {
+            info!("[{}] Running {}", self.target_info.name, command);
+        }
         run_command_with_env(command.as_str(), env.as_slice(), dir.as_deref())
     }
 }
@@ -130,7 +139,11 @@ impl Startable for ExecCommand {
             .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         let log_start = || {
-            info!("[{}] Starting {}", self.target_info.name, cmd);
+            if let Some(ref path) = dir {
+                info!("[{}] Starting {} (in {})", self.target_info.name, cmd, path.display());
+            } else {
+                info!("[{}] Starting {}", self.target_info.name, cmd);
+            }
         };
         spawn_command_with_pidfile(
             cmd.as_str(),
@@ -167,7 +180,11 @@ impl Startable for ExecCommand {
             .map(|d| context.resolve_dir(d, &self.target_info.name, outputs))
             .transpose()?;
         let log_start = || {
-            info!("[{}] Starting {}", self.target_info.name, cmd);
+            if let Some(ref path) = dir {
+                info!("[{}] Starting {} (in {})", self.target_info.name, cmd, path.display());
+            } else {
+                info!("[{}] Starting {}", self.target_info.name, cmd);
+            }
         };
         spawn_command_with_pidfile(
             cmd.as_str(),
