@@ -861,6 +861,7 @@ dependencies = [
  "shlex",
  "test-with",
  "toml",
+ "toml-span",
  "validator",
 ]
 
@@ -1283,6 +1284,15 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "toml_edit",
+]
+
+[[package]]
+name = "toml-span"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c6532e5b62b652073bff0e2050ef57e4697a853be118d6c57c32b59fffdeaab"
+dependencies = [
+ "smallvec",
 ]
 
 [[package]]

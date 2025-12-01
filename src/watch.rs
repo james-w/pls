@@ -215,6 +215,7 @@ mod tests {
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
             project_root: std::path::PathBuf::from("/tmp"),
+            span_map: None,
         };
         let target = any_target();
         context
@@ -237,6 +238,7 @@ mod tests {
             targets: HashMap::new(),
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
+            span_map: None,
         };
         let target = any_artifact_target();
         context
@@ -263,6 +265,7 @@ mod tests {
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
             project_root: std::path::PathBuf::from("/tmp"),
+            span_map: None,
         };
         let dependency = any_target();
         context

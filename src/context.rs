@@ -23,6 +23,7 @@ use crate::{
         CargoArtifact, CargoCommand, ContainerArtifact, ContainerCommand, ExecArtifact,
         ExecCommand, GoArtifact, GoCommand, Group,
     },
+    validation_error,
 };
 
 enum Variable {
@@ -64,6 +65,8 @@ pub struct Context {
 
     pub config_path: String,
     pub project_root: std::path::PathBuf,
+
+    pub span_map: Option<crate::config::SpanMap>,
 }
 
 impl Default for Context {
@@ -74,6 +77,7 @@ impl Default for Context {
             targets: HashMap::new(),
             config_path: String::new(),
             project_root: std::path::PathBuf::new(),
+            span_map: None,
         }
     }
 }
@@ -342,13 +346,14 @@ fn resolve_extends(
     command: &ConfigWrapper,
     commands: &HashMap<FullyQualifiedName, ConfigWrapper>,
     name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    span_map: Option<&crate::config::SpanMap>,
 ) -> Result<Target> {
     let base = if let Some(extends) = command.extends() {
         let extends_fully_qualified =
             get_lookup_name(extends.clone(), command.type_tag().to_string());
         let base = commands.get(&extends_fully_qualified);
         if let Some(base) = base {
-            resolve_extends(extends_fully_qualified, base, commands, name_map).map(Some)
+            resolve_extends(extends_fully_qualified, base, commands, name_map, span_map).map(Some)
         } else {
             Err(anyhow!(
                 "<{}> extends non-existent <{}>",
@@ -466,7 +471,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                exec.validate()?;
+                if let Some(span_map) = span_map {
+                    exec.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    exec.validate()?;
+                }
                 Ok(Target::Command(Command::Exec(exec)))
             }
             ConfigWrapper::Container(command) => {
@@ -613,7 +623,11 @@ impl ConfigWrapper {
 }
 
 impl Context {
-    pub fn from_config(config: &Config, path: String) -> Result<Context> {
+    pub fn from_config(
+        config: &Config,
+        path: String,
+        span_map: Option<crate::config::SpanMap>,
+    ) -> Result<Context> {
         let project_root = std::path::PathBuf::from(&path)
             .parent()
             .ok_or_else(|| anyhow!("Config path has no parent directory"))?
@@ -621,6 +635,7 @@ impl Context {
         let mut context = Context {
             config_path: path,
             project_root,
+            span_map,
             ..Default::default()
         };
         if let Some(ref globals) = config.globals {
@@ -813,7 +828,7 @@ impl Context {
         for (name, command) in commands.iter() {
             self.targets.insert(
                 name.clone(),
-                resolve_extends(name.clone(), command, commands, name_map)?,
+                resolve_extends(name.clone(), command, commands, name_map, self.span_map.as_ref())?,
             );
         }
         Ok(())
@@ -1075,7 +1090,7 @@ mod tests {
     #[test]
     fn from_empty_config() {
         let config = Config::default();
-        let context = Context::from_config(&config, "test".to_string()).unwrap();
+        let context = Context::from_config(&config, "test".to_string(), None).unwrap();
         assert_eq!(context.variables.len(), 0);
     }
 
@@ -1090,7 +1105,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .insert("key".to_string(), "value".to_string());
-        let context = Context::from_config(&config, "test".to_string()).unwrap();
+        let context = Context::from_config(&config, "test".to_string(), None).unwrap();
         assert_eq!(context.variables.len(), 0);
         assert_eq!(context.globals.len(), 1);
         assert_eq!(context.globals.get("key"), Some(&"value".to_string()));
