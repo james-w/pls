@@ -10,6 +10,7 @@ use log::{debug, error, warn, Log};
 mod cleanup;
 mod cmd;
 mod colors;
+mod command_builder;
 mod commands;
 mod config;
 mod containers;
