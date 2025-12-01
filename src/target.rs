@@ -12,7 +12,10 @@ use crate::cleanup::CleanupManager;
 use crate::context::Context;
 use crate::name::FullyQualifiedName;
 use crate::outputs::OutputsManager;
-use crate::targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand, Group};
+use crate::targets::{
+    CargoArtifact, CargoCommand, ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand,
+    GoArtifact, GoCommand, Group,
+};
 
 #[derive(Debug, Clone)]
 pub enum Target {
@@ -115,6 +118,8 @@ pub trait Targetable {
 
 #[derive(Debug, Clone)]
 pub enum Artifact {
+    Cargo(CargoArtifact),
+    Go(GoArtifact),
     ContainerImage(ContainerArtifact),
     Exec(ExecArtifact),
     #[cfg(test)]
@@ -161,6 +166,8 @@ impl Buildable for NullArtifact {
 impl Artifact {
     fn target_info(&self) -> &TargetInfo {
         match self {
+            Self::Cargo(cargo) => &cargo.target_info,
+            Self::Go(go) => &go.target_info,
             Self::ContainerImage(image) => &image.target_info,
             Self::Exec(exec) => &exec.target_info,
             #[cfg(test)]
@@ -170,6 +177,8 @@ impl Artifact {
 
     pub fn artifact_info(&self) -> &ArtifactInfo {
         match self {
+            Self::Cargo(cargo) => &cargo.artifact_info,
+            Self::Go(go) => &go.artifact_info,
             Self::ContainerImage(image) => &image.artifact_info,
             Self::Exec(exec) => &exec.artifact_info,
             #[cfg(test)]
@@ -179,6 +188,8 @@ impl Artifact {
 
     fn inner_as_buildable(&self) -> &dyn Buildable {
         match self {
+            Self::Cargo(cargo) => cargo,
+            Self::Go(go) => go,
             Self::ContainerImage(image) => image,
             Self::Exec(exec) => exec,
             #[cfg(test)]
@@ -287,6 +298,20 @@ impl Runnable for Artifact {
 }
 
 impl Artifact {
+    pub fn cargo(&self) -> Result<&CargoArtifact> {
+        match self {
+            Self::Cargo(cargo) => Ok(cargo),
+            _ => Err(anyhow!("Expected a cargo artifact")),
+        }
+    }
+
+    pub fn go(&self) -> Result<&GoArtifact> {
+        match self {
+            Self::Go(go) => Ok(go),
+            _ => Err(anyhow!("Expected a go artifact")),
+        }
+    }
+
     pub fn container_image(&self) -> Result<&ContainerArtifact> {
         match self {
             Self::ContainerImage(image) => Ok(image),
@@ -306,6 +331,8 @@ impl Artifact {
 pub enum Command {
     #[cfg(test)]
     Null(NullCommand),
+    Cargo(CargoCommand),
+    Go(GoCommand),
     Exec(ExecCommand),
     Container(ContainerCommand),
 }
@@ -404,6 +431,8 @@ impl Startable for NullCommand {
 impl Command {
     fn target_info(&self) -> &TargetInfo {
         match self {
+            Self::Cargo(cargo) => &cargo.target_info,
+            Self::Go(go) => &go.target_info,
             Self::Exec(exec) => &exec.target_info,
             Self::Container(container) => &container.target_info,
             #[cfg(test)]
@@ -413,6 +442,8 @@ impl Command {
 
     pub fn command_info(&self) -> &CommandInfo {
         match self {
+            Self::Cargo(cargo) => &cargo.command_info,
+            Self::Go(go) => &go.command_info,
             Self::Exec(exec) => &exec.command_info,
             Self::Container(container) => &container.command_info,
             #[cfg(test)]
@@ -422,6 +453,8 @@ impl Command {
 
     fn inner_as_runnable(&self) -> &dyn Runnable {
         match self {
+            Self::Cargo(cargo) => cargo,
+            Self::Go(go) => go,
             Self::Exec(exec) => exec,
             Self::Container(container) => container,
             #[cfg(test)]
@@ -742,6 +775,8 @@ impl Startable for Command {
         args: Vec<String>,
     ) -> Result<()> {
         match self {
+            Command::Cargo(cargo) => cargo.start_if_needed(context, outputs, cleanup_manager, args),
+            Command::Go(go) => go.start_if_needed(context, outputs, cleanup_manager, args),
             Command::Exec(exec) => exec.start_if_needed(context, outputs, cleanup_manager, args),
             Command::Container(container) => {
                 container.start_if_needed(context, outputs, cleanup_manager, args)
@@ -775,6 +810,20 @@ impl Startable for Command {
 }
 
 impl Command {
+    pub fn cargo(&self) -> Result<&CargoCommand> {
+        match self {
+            Self::Cargo(cargo) => Ok(cargo),
+            _ => Err(anyhow!("Expected a cargo command")),
+        }
+    }
+
+    pub fn go(&self) -> Result<&GoCommand> {
+        match self {
+            Self::Go(go) => Ok(go),
+            _ => Err(anyhow!("Expected a go command")),
+        }
+    }
+
     pub fn exec(&self) -> Result<&ExecCommand> {
         match self {
             Self::Exec(exec) => Ok(exec),
@@ -791,6 +840,8 @@ impl Command {
 
     fn inner_as_startable(&self) -> &dyn Startable {
         match self {
+            Self::Cargo(cargo) => cargo,
+            Self::Go(go) => go,
             Self::Exec(exec) => exec,
             Self::Container(container) => container,
             #[cfg(test)]

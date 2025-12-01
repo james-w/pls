@@ -6,10 +6,12 @@ use validator::Validate;
 
 use crate::{
     config::{
-        ArtifactInfo as ConfigArtifactInfo, CommandInfo as ConfigCommandInfo, Config,
+        ArtifactInfo as ConfigArtifactInfo, CargoArtifact as ConfigCargoArtifact,
+        CargoCommand as ConfigCargoCommand, CommandInfo as ConfigCommandInfo, Config,
         ContainerBuild as ConfigContainerBuild, ContainerCommand as ConfigContainerCommand,
         ExecArtifact as ConfigExecArtifact, ExecCommand as ConfigExecCommand,
-        GroupDef as ConfigGroupDef, TargetInfo as ConfigTargetInfo,
+        GoArtifact as ConfigGoArtifact, GoCommand as ConfigGoCommand, GroupDef as ConfigGroupDef,
+        TargetInfo as ConfigTargetInfo,
     },
     default::default_to,
     name::FullyQualifiedName,
@@ -17,7 +19,10 @@ use crate::{
     shell::escape_string,
     similarity::levenshtein_distance,
     target::{Artifact, ArtifactInfo, Command, CommandInfo, Target, TargetInfo},
-    targets::{ContainerArtifact, ContainerCommand, ExecArtifact, ExecCommand, Group},
+    targets::{
+        CargoArtifact, CargoCommand, ContainerArtifact, ContainerCommand, ExecArtifact,
+        ExecCommand, GoArtifact, GoCommand, Group,
+    },
 };
 
 enum Variable {
@@ -408,6 +413,34 @@ fn resolve_extends(
                 artifact.validate()?;
                 Ok(Target::Artifact(Artifact::Exec(artifact)))
             }
+            ConfigWrapper::CargoArtifact(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| b.artifact()?.cargo())
+                    .transpose()?;
+                let artifact = CargoArtifact::from_config(
+                    target_info,
+                    artifact_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
+                artifact.validate()?;
+                Ok(Target::Artifact(Artifact::Cargo(artifact)))
+            }
+            ConfigWrapper::GoArtifact(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| b.artifact()?.go())
+                    .transpose()?;
+                let artifact = GoArtifact::from_config(
+                    target_info,
+                    artifact_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
+                artifact.validate()?;
+                Ok(Target::Artifact(Artifact::Go(artifact)))
+            }
             _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
         }
     } else {
@@ -452,6 +485,34 @@ fn resolve_extends(
                     .map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
                 Ok(Target::Command(Command::Container(container)))
             }
+            ConfigWrapper::Cargo(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| b.command()?.cargo())
+                    .transpose()?;
+                let cargo = CargoCommand::from_config(
+                    target_info,
+                    command_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
+                cargo.validate()?;
+                Ok(Target::Command(Command::Cargo(cargo)))
+            }
+            ConfigWrapper::Go(command) => {
+                let base = base
+                    .as_ref()
+                    .map::<Result<_>, _>(|b| b.command()?.go())
+                    .transpose()?;
+                let go = GoCommand::from_config(
+                    target_info,
+                    command_info,
+                    &command.with_resolved_targets(name_map)?,
+                    base,
+                );
+                go.validate()?;
+                Ok(Target::Command(Command::Go(go)))
+            }
             _ => panic!("Unknown command type, got <{}>", command.type_tag()),
         }
     }
@@ -464,6 +525,10 @@ pub enum CommandLookupResult<'a> {
 }
 
 enum ConfigWrapper {
+    Cargo(ConfigCargoCommand),
+    CargoArtifact(ConfigCargoArtifact),
+    Go(ConfigGoCommand),
+    GoArtifact(ConfigGoArtifact),
     Exec(ConfigExecCommand),
     Container(ConfigContainerCommand),
     ContainerBuild(ConfigContainerBuild),
@@ -474,6 +539,10 @@ enum ConfigWrapper {
 impl ConfigWrapper {
     fn target_info(&self) -> &ConfigTargetInfo {
         match self {
+            Self::Cargo(command) => &command.target_info,
+            Self::CargoArtifact(command) => &command.target_info,
+            Self::Go(command) => &command.target_info,
+            Self::GoArtifact(command) => &command.target_info,
             Self::Exec(command) => &command.target_info,
             Self::Container(command) => &command.target_info,
             Self::ContainerBuild(command) => &command.target_info,
@@ -484,6 +553,10 @@ impl ConfigWrapper {
 
     fn command_info(&self) -> Option<&ConfigCommandInfo> {
         match self {
+            Self::Cargo(command) => Some(&command.command_info),
+            Self::CargoArtifact(_) => None,
+            Self::Go(command) => Some(&command.command_info),
+            Self::GoArtifact(_) => None,
             Self::Exec(command) => Some(&command.command_info),
             Self::Container(command) => Some(&command.command_info),
             Self::ContainerBuild(_) => None,
@@ -494,6 +567,10 @@ impl ConfigWrapper {
 
     fn artifact_info(&self) -> Option<&ConfigArtifactInfo> {
         match self {
+            Self::Cargo(_) => None,
+            Self::CargoArtifact(command) => Some(&command.artifact_info),
+            Self::Go(_) => None,
+            Self::GoArtifact(command) => Some(&command.artifact_info),
             Self::Exec(_) => None,
             Self::Container(_) => None,
             Self::ContainerBuild(command) => Some(&command.artifact_info),
@@ -508,6 +585,10 @@ impl ConfigWrapper {
 
     fn type_tag(&self) -> &'static str {
         match self {
+            Self::Cargo(c) => c.type_tag(),
+            Self::CargoArtifact(c) => c.type_tag(),
+            Self::Go(c) => c.type_tag(),
+            Self::GoArtifact(c) => c.type_tag(),
             Self::Exec(c) => c.type_tag(),
             Self::Container(c) => c.type_tag(),
             Self::ContainerBuild(c) => c.type_tag(),
@@ -518,6 +599,10 @@ impl ConfigWrapper {
 
     fn is_artifact(&self) -> bool {
         match self {
+            Self::Cargo(c) => c.is_artifact(),
+            Self::CargoArtifact(c) => c.is_artifact(),
+            Self::Go(c) => c.is_artifact(),
+            Self::GoArtifact(c) => c.is_artifact(),
             Self::Exec(c) => c.is_artifact(),
             Self::Container(c) => c.is_artifact(),
             Self::ContainerBuild(c) => c.is_artifact(),
@@ -580,6 +665,42 @@ impl Context {
                     .or_insert_with(Vec::new)
                     .push(fully_qualified_name);
             }
+            for (name, config_command) in c.cargo.iter().flatten() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_command.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::Cargo(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
+            for (name, config_command) in c.go.iter().flatten() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_command.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::Go(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
         }
         if let Some(ref c) = config.artifact {
             for (name, config_command) in c.container_image.iter().flatten() {
@@ -608,6 +729,42 @@ impl Context {
                 commands.insert(
                     fully_qualified_name.clone(),
                     ConfigWrapper::ExecArtifact(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
+            for (name, config_command) in c.cargo.iter().flatten() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_command.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::CargoArtifact(config_command.clone()),
+                );
+                name_map
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name.clone());
+                name_map
+                    .entry(fully_qualified_name.to_string())
+                    .or_insert_with(Vec::new)
+                    .push(fully_qualified_name);
+            }
+            for (name, config_command) in c.go.iter().flatten() {
+                let fully_qualified_name = FullyQualifiedName {
+                    tag: config_command.type_tag().to_string(),
+                    name: name.clone(),
+                };
+                commands.insert(
+                    fully_qualified_name.clone(),
+                    ConfigWrapper::GoArtifact(config_command.clone()),
                 );
                 name_map
                     .entry(name.clone())
@@ -787,11 +944,7 @@ impl Context {
 
     pub fn get_target(&self, name: &str) -> CommandLookupResult<'_> {
         if name.contains('.') {
-            let (tag, name) = name.split_once('.').unwrap();
-            let fully_qualified_name = FullyQualifiedName {
-                tag: tag.to_string(),
-                name: name.to_string(),
-            };
+            let fully_qualified_name = FullyQualifiedName::from_string(name);
             self.targets
                 .get(&fully_qualified_name)
                 .map(CommandLookupResult::Found)
