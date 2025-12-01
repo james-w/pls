@@ -1,6 +1,5 @@
 use std::io::Write;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use anyhow::Result;
@@ -69,9 +68,18 @@ impl<L1: Log, L2: Log> Log for CombineLogger<L1, L2> {
     }
 }
 
-fn start_cleanup_thread(cleanup_manager: Arc<Mutex<CleanupManager>>, running: Arc<AtomicBool>) {
+fn start_cleanup_thread(
+    cleanup_manager: Arc<Mutex<CleanupManager>>,
+    running: Arc<(Mutex<bool>, Condvar)>,
+) {
     thread::spawn(move || {
-        while running.load(std::sync::atomic::Ordering::SeqCst) {}
+        let (lock, cvar) = &*running;
+        let mut running = lock.lock().unwrap();
+
+        while *running {
+            running = cvar.wait(running).unwrap();
+        }
+
         warn!("Received stop signal, cleaning up...");
         let mut manager = cleanup_manager.lock().unwrap();
         manager.run_cleanups();
@@ -161,14 +169,19 @@ pub fn main() {
     let logger = CombineLogger(info_logger, debug_logger);
     log::set_boxed_logger(Box::new(logger)).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
-    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let running = Arc::new((Mutex::new(true), Condvar::new()));
     let r = running.clone();
     ctrlc::set_handler(move || {
-        if !r.load(std::sync::atomic::Ordering::SeqCst) {
-            warn!("Received stop signal a second time, stopping abrubtly...");
+        let (lock, cvar) = &*r;
+        let mut running = lock.lock().unwrap();
+
+        if !*running {
+            warn!("Received stop signal a second time, stopping abruptly...");
             std::process::exit(130);
         }
-        r.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        *running = false;
+        cvar.notify_one();
     })
     .expect("Error setting Ctrl-C handler");
     let cleanup_manager = Arc::new(Mutex::new(CleanupManager::new()));
