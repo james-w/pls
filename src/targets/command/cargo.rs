@@ -8,6 +8,7 @@ use crate::config::{CargoCommand as ConfigCargoCommand, ExecCommand as ConfigExe
 use crate::context::Context;
 use crate::default::default_optional;
 use crate::outputs::OutputsManager;
+use crate::shell::escape_string;
 use crate::target::{CommandInfo, Runnable, Startable, StatusResult, TargetInfo};
 use crate::targets::command::exec::ExecCommand;
 
@@ -70,7 +71,8 @@ impl CargoCommand {
             all_features,
             no_default_features,
             &args,
-        );
+        )
+        .expect("Failed to escape cargo command arguments");
 
         // Merge env (base first, then current)
         let mut env = vec![];
@@ -120,15 +122,15 @@ fn build_cargo_command_string(
     all_features: Option<bool>,
     no_default_features: Option<bool>,
     args: &Option<String>,
-) -> String {
+) -> Result<String, shlex::QuoteError> {
     let mut parts = vec!["cargo".to_string()];
 
     if let Some(subcmd) = subcommand {
-        parts.push(subcmd.clone());
+        parts.push(escape_string(subcmd)?);
     }
 
     if let Some(pkg) = package {
-        parts.push(format!("--package {}", pkg));
+        parts.push(format!("--package {}", escape_string(pkg)?));
     }
 
     if release.unwrap_or(false) {
@@ -137,13 +139,17 @@ fn build_cargo_command_string(
 
     if all_features.unwrap_or(false) {
         parts.push("--all-features".to_string());
-    } else if no_default_features.unwrap_or(false) {
-        parts.push("--no-default-features".to_string());
-    }
-
-    if let Some(feats) = features {
-        if !feats.is_empty() {
-            parts.push(format!("--features {}", feats.join(",")));
+    } else {
+        if no_default_features.unwrap_or(false) {
+            parts.push("--no-default-features".to_string());
+        }
+        if let Some(feats) = features {
+            if !feats.is_empty() {
+                let escaped_features: Result<Vec<_>, _> = feats.iter()
+                    .map(|f| escape_string(f))
+                    .collect();
+                parts.push(format!("--features {}", escaped_features?.join(",")));
+            }
         }
     }
 
@@ -151,7 +157,7 @@ fn build_cargo_command_string(
         parts.push(extra.clone());
     }
 
-    parts.join(" ")
+    Ok(parts.join(" "))
 }
 
 // Pure delegation to inner ExecCommand
