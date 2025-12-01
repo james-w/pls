@@ -12,6 +12,7 @@ mod colors;
 mod command_builder;
 mod commands;
 mod config;
+mod config_deserialize;
 mod containers;
 mod context;
 mod default;
@@ -23,6 +24,7 @@ mod similarity;
 mod target;
 mod targets;
 mod validate;
+mod validation_error;
 mod watch;
 
 pub use cleanup::CleanupManager;
@@ -36,8 +38,8 @@ pub fn run(args: Args, cleanup_manager: Arc<Mutex<CleanupManager>>) -> Result<()
     }
     let config_path =
         find_config_file().expect("Could not find config file in this directory or any parent");
-    let config = Config::load_and_validate(&config_path)?;
-    let context = Context::from_config(&config, config_path.display().to_string())?;
+    let (config, span_map) = Config::load_and_validate(&config_path)?;
+    let context = Context::from_config(&config, config_path.display().to_string(), Some(span_map))?;
     match args.command {
         Some(cmd) => cmd.execute(context, cleanup_manager),
         None => panic!("No command provided"),
@@ -119,12 +121,22 @@ pub fn main() {
                         let unknown_cmd = &error_msg[start + 1..start + 1 + end];
 
                         if !unknown_cmd.is_empty() {
+                            // Check if -C was passed to change directory
+                            let args: Vec<String> = std::env::args().collect();
+                            if let Some(c_index) = args.iter().position(|a| a == "-C") {
+                                if let Some(dir) = args.get(c_index + 1) {
+                                    let _ = std::env::set_current_dir(dir);
+                                }
+                            }
+
                             // Try to load config and check if this is a valid target
                             if let Some(config_path) = find_config_file() {
-                                if let Ok(config) = Config::load_and_validate(&config_path) {
+                                match Config::load_and_validate(&config_path) {
+                                    Ok((config, span_map)) => {
                                     if let Ok(context) = Context::from_config(
                                         &config,
                                         config_path.display().to_string(),
+                                        Some(span_map),
                                     ) {
                                         // Check if the unknown command is a valid target
                                         if context.targets.keys().any(|key| {
@@ -145,6 +157,10 @@ pub fn main() {
                                             );
                                             std::process::exit(2);
                                         }
+                                    }
+                                    }
+                                    Err(_) => {
+                                        // Config validation failed, can't provide hint
                                     }
                                 }
                             }

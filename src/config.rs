@@ -6,10 +6,14 @@ use log::debug;
 use serde::Deserialize;
 use validator::Validate;
 
+use crate::config_deserialize;
 use crate::context::{
     resolve_target_names_in, resolve_target_names_in_map, resolve_target_names_in_vec,
 };
 use crate::name::FullyQualifiedName;
+use crate::validation_error;
+
+pub use crate::validation_error::SpanMap;
 
 #[derive(Deserialize, Clone, Default, Debug, Validate)]
 pub struct Config {
@@ -780,11 +784,23 @@ pub fn find_config_file() -> Option<std::path::PathBuf> {
 }
 
 impl Config {
-    pub fn load_and_validate(config_path: &PathBuf) -> Result<Self> {
+    pub fn load_and_validate(config_path: &PathBuf) -> Result<(Self, SpanMap)> {
         let config_str = std::fs::read_to_string(config_path)?;
-        let config: Config = toml::from_str(config_str.as_str())?;
+        let (config, span_map) = config_deserialize::parse_with_spans(&config_str)?;
         debug!("Loaded config: {:?}", config);
-        config.validate()?;
-        Ok(config)
+
+        // Enhanced validation with span context
+        debug!("About to validate config");
+        match config.validate() {
+            Ok(_) => {
+                debug!("Validation passed");
+            }
+            Err(e) => {
+                debug!("Validation failed with errors: {:?}", e);
+                return Err(validation_error::format_validation_error(e, &span_map));
+            }
+        }
+
+        Ok((config, span_map))
     }
 }
