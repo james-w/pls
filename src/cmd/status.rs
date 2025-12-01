@@ -5,6 +5,7 @@ use clap::Parser;
 
 use crate::cleanup::CleanupManager;
 use crate::cmd::execute::Execute;
+use crate::colors;
 use crate::context::{CommandLookupResult, Context};
 use crate::outputs::OutputsManager;
 use crate::target::{StatusResult, Targetable};
@@ -28,11 +29,17 @@ impl Execute for StatusCommand {
                 if let Some(builder) = builder {
                     match builder.status(&context, &mut outputs) {
                         Ok(StatusResult::Running(msg)) => {
-                            println!("[{}] {}", target.target_info().name, msg.as_str());
+                            println!("{} {}",
+                                colors::target_prefix(&target.target_info().name.to_string()),
+                                colors::success_msg(msg.as_str())
+                            );
                             Ok(())
                         },
                         Ok(StatusResult::NotRunning()) => {
-                            println!("[{}] Not running", target.target_info().name);
+                            println!("{} {}",
+                                colors::target_prefix(&target.target_info().name.to_string()),
+                                colors::grey_msg("Not running")
+                            );
                             Ok(())
                         },
                         Err(e) => Err(e),

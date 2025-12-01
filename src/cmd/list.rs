@@ -5,6 +5,7 @@ use clap::Parser;
 
 use crate::cleanup::CleanupManager;
 use crate::cmd::execute::Execute;
+use crate::colors;
 use crate::context::Context;
 
 #[derive(Parser, Debug)]
@@ -40,8 +41,8 @@ impl Execute for ListCommand {
         for (name, target) in targets {
             println!(
                 "{} - {}",
-                name,
-                target.target_info().description.clone().unwrap_or_default()
+                colors::success_msg(&name.to_string()),
+                colors::grey_msg(&target.target_info().description.clone().unwrap_or_default())
             );
         }
         Ok(())

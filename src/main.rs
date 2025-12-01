@@ -9,6 +9,7 @@ use log::{debug, error, warn, Log};
 
 mod cleanup;
 mod cmd;
+mod colors;
 mod commands;
 mod config;
 mod containers;
@@ -80,7 +81,18 @@ fn start_cleanup_thread(cleanup_manager: Arc<Mutex<CleanupManager>>, running: Ar
 
 pub fn main() {
     let info_logger = env_logger::builder()
-        .format(|buf, record| writeln!(buf, "{}", record.args()))
+        .format(|buf, record| {
+            use log::Level;
+
+            let msg = record.args().to_string();
+            let colored = match record.level() {
+                Level::Error => colors::error_msg(&msg),
+                Level::Warn => colors::warn_msg(&msg),
+                Level::Info => colors::grey_msg(&msg),
+                _ => msg, // Debug unchanged
+            };
+            writeln!(buf, "{}", colored)
+        })
         .filter_level(log::LevelFilter::Info)
         .build();
 
@@ -110,12 +122,18 @@ pub fn main() {
                                             key.name == unknown_cmd
                                                 || key.to_string() == unknown_cmd
                                         }) {
-                                            eprintln!("{}", e);
+                                            eprintln!("{}", colors::error_msg(&e.to_string()));
                                             eprintln!(
-                                                "\nHint: Did you mean 'pls run {}'?",
-                                                unknown_cmd
+                                                "\n{}",
+                                                colors::warn_msg(&format!(
+                                                    "Hint: Did you mean 'pls run {}'?",
+                                                    unknown_cmd
+                                                ))
                                             );
-                                            eprintln!("      Target '{}' exists but must be run with the 'run' command.", unknown_cmd);
+                                            eprintln!(
+                                                "      {}",
+                                                colors::grey_msg(&format!("Target '{}' exists but must be run with the 'run' command.", unknown_cmd))
+                                            );
                                             std::process::exit(2);
                                         }
                                     }
