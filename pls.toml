@@ -1,61 +1,55 @@
 # CI Commands - mirrors .github/workflows/cargo.yml
 
-[command.exec.cargo]
-command = "cargo"
-
-[command.exec.fmt]
-extends = "cargo"
-default_args = "fmt"
+[command.cargo.fmt]
+subcommand = "fmt"
 description = "Format code"
 
-[command.exec.fmt-check]
+[command.cargo.fmt-check]
 extends = "fmt"
-default_args = "--check"
+args = "--check"
 description = "Check code formatting"
 
-[command.exec.test]
-extends = "cargo"
-default_args = "nextest run"
+[command.cargo.test]
+subcommand = "nextest"
+args = "run"
 description = "Run tests"
 
-[command.exec.cover]
-extends = "cargo"
-default_args = "llvm-cov --all-features --workspace --codecov --output-path codecov.json nextest"
+[command.cargo.cover]
+subcommand = "llvm-cov"
+args = "--all-features --workspace --codecov --output-path codecov.json nextest"
 description = "Run tests with coverage"
 
-[command.exec.coverage-report]
-extends = "cargo"
-default_args = "llvm-cov report"
+[command.cargo.coverage-report]
+subcommand = "llvm-cov"
+args = "report"
 description = "Show coverage report"
-requires = ["cover"]
+requires = ["command.cargo.cover"]
 
-[command.exec.clippy]
-extends = "cargo"
-default_args = "clippy --all-targets --all-features -- -D warnings"
+[command.cargo.clippy]
+subcommand = "clippy"
+args = "--all-targets --all-features -- -D warnings"
 description = "Run clippy with all warnings as errors"
 
-[command.exec.clippy-fix]
-extends = "cargo"
-default_args = "clippy --all-targets --all-features --fix -- -D warnings"
+[command.cargo.clippy-fix]
+subcommand = "clippy"
+args = "--all-targets --all-features --fix -- -D warnings"
 description = "Run clippy in fix mode"
 
-[command.exec.check]
-extends = "cargo"
-default_args = "check"
+[command.cargo.check]
+subcommand = "check"
 description = "Run cargo check"
 
 [command.exec.ci]
 command = "echo 'CI checks complete'"
 description = "Run all CI checks before pushing"
-requires = ["fmt", "test", "clippy", "check"]
+requires = ["command.cargo.fmt", "command.cargo.test", "command.cargo.clippy", "command.cargo.check"]
 
-[command.exec.build]
-extends = "cargo"
-default_args = "build"
+[artifact.cargo.build]
+subcommand = "build"
+bin = "pls"
 description = "Build the binary"
-updates_files = ["target/debug/pls"]
 
 [command.exec.local-install]
 command = "sh -c 'install target/debug/pls ~/.local/bin/pls'"
 description = "Copy binary to local install dir"
-requires = ["build"]
+requires = ["artifact.cargo.build"]

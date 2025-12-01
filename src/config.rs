@@ -32,6 +32,12 @@ pub struct Artifact {
 
     #[validate(nested)]
     pub exec: Option<HashMap<String, ExecArtifact>>,
+
+    #[validate(nested)]
+    pub cargo: Option<HashMap<String, CargoArtifact>>,
+
+    #[validate(nested)]
+    pub go: Option<HashMap<String, GoArtifact>>,
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -109,6 +115,10 @@ pub struct Command {
     pub exec: Option<HashMap<String, ExecCommand>>,
     #[validate(nested)]
     pub container: Option<HashMap<String, ContainerCommand>>,
+    #[validate(nested)]
+    pub cargo: Option<HashMap<String, CargoCommand>>,
+    #[validate(nested)]
+    pub go: Option<HashMap<String, GoCommand>>,
 }
 
 #[derive(Deserialize, Clone, Debug, Validate)]
@@ -157,6 +167,199 @@ impl ExecCommand {
             .default_args
             .as_ref()
             .map(|e| resolve_target_names_in(e, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        Ok(new)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct CargoCommand {
+    pub subcommand: Option<String>,
+    pub args: Option<String>,
+    pub package: Option<String>,
+    pub release: Option<bool>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub features: Option<Vec<String>>,
+    pub all_features: Option<bool>,
+    pub no_default_features: Option<bool>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub command_info: CommandInfo,
+}
+
+impl CargoCommand {
+    pub fn tag() -> &'static str {
+        "command.cargo"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        false
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.subcommand = self
+            .subcommand
+            .as_ref()
+            .map(|s| resolve_target_names_in(s, name_map))
+            .transpose()?;
+        new.args = self
+            .args
+            .as_ref()
+            .map(|a| resolve_target_names_in(a, name_map))
+            .transpose()?;
+        new.package = self
+            .package
+            .as_ref()
+            .map(|p| resolve_target_names_in(p, name_map))
+            .transpose()?;
+        new.features = self
+            .features
+            .as_ref()
+            .map(|f| resolve_target_names_in_vec(f, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        Ok(new)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct GoCommand {
+    pub subcommand: Option<String>,
+    pub args: Option<String>,
+
+    // Common flags
+    pub verbose: Option<bool>,
+    pub output: Option<String>,
+
+    // Build flags
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub tags: Option<Vec<String>>,
+    pub ldflags: Option<String>,
+    pub race: Option<bool>,
+    pub cover: Option<bool>,
+
+    // Test-specific flags
+    pub run_pattern: Option<String>,
+    pub bench: Option<String>,
+    pub timeout: Option<String>,
+    pub short: Option<bool>,
+    pub count: Option<i32>,
+
+    // Module operations
+    pub mod_operation: Option<String>,
+
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub command_info: CommandInfo,
+}
+
+impl GoCommand {
+    pub fn tag() -> &'static str {
+        "command.go"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        false
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.subcommand = self
+            .subcommand
+            .as_ref()
+            .map(|s| resolve_target_names_in(s, name_map))
+            .transpose()?;
+        new.args = self
+            .args
+            .as_ref()
+            .map(|a| resolve_target_names_in(a, name_map))
+            .transpose()?;
+        new.output = self
+            .output
+            .as_ref()
+            .map(|o| resolve_target_names_in(o, name_map))
+            .transpose()?;
+        new.tags = self
+            .tags
+            .as_ref()
+            .map(|t| resolve_target_names_in_vec(t, name_map))
+            .transpose()?;
+        new.ldflags = self
+            .ldflags
+            .as_ref()
+            .map(|l| resolve_target_names_in(l, name_map))
+            .transpose()?;
+        new.run_pattern = self
+            .run_pattern
+            .as_ref()
+            .map(|r| resolve_target_names_in(r, name_map))
+            .transpose()?;
+        new.bench = self
+            .bench
+            .as_ref()
+            .map(|b| resolve_target_names_in(b, name_map))
+            .transpose()?;
+        new.timeout = self
+            .timeout
+            .as_ref()
+            .map(|t| resolve_target_names_in(t, name_map))
+            .transpose()?;
+        new.mod_operation = self
+            .mod_operation
+            .as_ref()
+            .map(|m| resolve_target_names_in(m, name_map))
             .transpose()?;
         new.env = self
             .env
@@ -354,6 +557,178 @@ impl ExecArtifact {
             .dir
             .as_ref()
             .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        Ok(new)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct CargoArtifact {
+    pub subcommand: Option<String>,
+    pub args: Option<String>,
+    pub package: Option<String>,
+    pub release: Option<bool>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub features: Option<Vec<String>>,
+    pub all_features: Option<bool>,
+    pub no_default_features: Option<bool>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
+    pub bin: Option<String>,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub artifact_info: ArtifactInfo,
+}
+
+impl CargoArtifact {
+    pub fn tag() -> &'static str {
+        "artifact.cargo"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        true
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.subcommand = self
+            .subcommand
+            .as_ref()
+            .map(|s| resolve_target_names_in(s, name_map))
+            .transpose()?;
+        new.args = self
+            .args
+            .as_ref()
+            .map(|a| resolve_target_names_in(a, name_map))
+            .transpose()?;
+        new.package = self
+            .package
+            .as_ref()
+            .map(|p| resolve_target_names_in(p, name_map))
+            .transpose()?;
+        new.features = self
+            .features
+            .as_ref()
+            .map(|f| resolve_target_names_in_vec(f, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        new.bin = self
+            .bin
+            .as_ref()
+            .map(|b| resolve_target_names_in(b, name_map))
+            .transpose()?;
+        Ok(new)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Validate)]
+pub struct GoArtifact {
+    pub subcommand: Option<String>,
+    pub args: Option<String>,
+
+    pub output: Option<String>,
+    pub verbose: Option<bool>,
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub tags: Option<Vec<String>>,
+    pub ldflags: Option<String>,
+    pub race: Option<bool>,
+
+    pub bin: Option<String>,
+
+    #[validate(custom(function = "crate::validate::non_empty_strings"))]
+    pub env: Option<Vec<String>>,
+    #[validate(length(min = 1, message = "dir must not be empty"))]
+    pub dir: Option<String>,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub target_info: TargetInfo,
+
+    #[serde(flatten)]
+    #[validate(nested)]
+    pub artifact_info: ArtifactInfo,
+}
+
+impl GoArtifact {
+    pub fn tag() -> &'static str {
+        "artifact.go"
+    }
+
+    pub fn type_tag(&self) -> &'static str {
+        Self::tag()
+    }
+
+    pub fn is_artifact(&self) -> bool {
+        true
+    }
+
+    pub fn with_resolved_targets(
+        &self,
+        name_map: &HashMap<String, Vec<FullyQualifiedName>>,
+    ) -> Result<Self> {
+        let mut new = self.clone();
+        new.subcommand = self
+            .subcommand
+            .as_ref()
+            .map(|s| resolve_target_names_in(s, name_map))
+            .transpose()?;
+        new.args = self
+            .args
+            .as_ref()
+            .map(|a| resolve_target_names_in(a, name_map))
+            .transpose()?;
+        new.output = self
+            .output
+            .as_ref()
+            .map(|o| resolve_target_names_in(o, name_map))
+            .transpose()?;
+        new.tags = self
+            .tags
+            .as_ref()
+            .map(|t| resolve_target_names_in_vec(t, name_map))
+            .transpose()?;
+        new.ldflags = self
+            .ldflags
+            .as_ref()
+            .map(|l| resolve_target_names_in(l, name_map))
+            .transpose()?;
+        new.env = self
+            .env
+            .as_ref()
+            .map(|e| resolve_target_names_in_vec(e, name_map))
+            .transpose()?;
+        new.dir = self
+            .dir
+            .as_ref()
+            .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        new.bin = self
+            .bin
+            .as_ref()
+            .map(|b| resolve_target_names_in(b, name_map))
             .transpose()?;
         Ok(new)
     }
