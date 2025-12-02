@@ -133,31 +133,31 @@ pub fn main() {
                             if let Some(config_path) = find_config_file() {
                                 match Config::load_and_validate(&config_path) {
                                     Ok((config, span_map)) => {
-                                    if let Ok(context) = Context::from_config(
-                                        &config,
-                                        config_path.display().to_string(),
-                                        Some(span_map),
-                                    ) {
-                                        // Check if the unknown command is a valid target
-                                        if context.targets.keys().any(|key| {
-                                            key.name == unknown_cmd
-                                                || key.to_string() == unknown_cmd
-                                        }) {
-                                            eprintln!("{}", colors::error_msg(&e.to_string()));
-                                            eprintln!(
-                                                "\n{}",
-                                                colors::warn_msg(&format!(
-                                                    "Hint: Did you mean 'pls run {}'?",
-                                                    unknown_cmd
-                                                ))
-                                            );
-                                            eprintln!(
+                                        if let Ok(context) = Context::from_config(
+                                            &config,
+                                            config_path.display().to_string(),
+                                            Some(span_map),
+                                        ) {
+                                            // Check if the unknown command is a valid target
+                                            if context.targets.keys().any(|key| {
+                                                key.name == unknown_cmd
+                                                    || key.to_string() == unknown_cmd
+                                            }) {
+                                                eprintln!("{}", colors::error_msg(&e.to_string()));
+                                                eprintln!(
+                                                    "\n{}",
+                                                    colors::warn_msg(&format!(
+                                                        "Hint: Did you mean 'pls run {}'?",
+                                                        unknown_cmd
+                                                    ))
+                                                );
+                                                eprintln!(
                                                 "      {}",
                                                 colors::grey_msg(&format!("Target '{}' exists but must be run with the 'run' command.", unknown_cmd))
                                             );
-                                            std::process::exit(2);
+                                                std::process::exit(2);
+                                            }
                                         }
-                                    }
                                     }
                                     Err(_) => {
                                         // Config validation failed, can't provide hint

@@ -37,7 +37,9 @@ command = ""
 
     // Check for the help message
     assert!(
-        stderr.contains("The 'command' field cannot be an empty string.\n  Example: command = \"npm run dev\""),
+        stderr.contains(
+            "The 'command' field cannot be an empty string.\n  Example: command = \"npm run dev\""
+        ),
         "Error should show helpful example, got: {}",
         stderr
     );
@@ -77,7 +79,9 @@ fn test_missing_command_validation() {
 
     // Check for the help message
     assert!(
-        stderr.contains("The 'command' field cannot be an empty string.\n  Example: command = \"npm run dev\""),
+        stderr.contains(
+            "The 'command' field cannot be an empty string.\n  Example: command = \"npm run dev\""
+        ),
         "Error should show helpful example, got: {}",
         stderr
     );

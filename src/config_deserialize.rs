@@ -150,7 +150,10 @@ command = "echo hello"
         let (_config, span_map) = result.unwrap();
         // Verify we have some span information
         assert!(span_map.get_target("command.exec.test").is_some());
-        assert_eq!(span_map.resolve_path("command.exec[0].command"), "command.exec.test.command");
+        assert_eq!(
+            span_map.resolve_path("command.exec[0].command"),
+            "command.exec.test.command"
+        );
         assert_eq!(span_map.source(), toml);
     }
 }

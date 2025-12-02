@@ -402,8 +402,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    artifact.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    artifact.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     artifact.validate()?;
                 }
@@ -421,8 +422,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    artifact.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    artifact.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     artifact.validate()?;
                 }
@@ -440,8 +442,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    artifact.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    artifact.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     artifact.validate()?;
                 }
@@ -459,8 +462,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    artifact.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    artifact.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     artifact.validate()?;
                 }
@@ -492,8 +496,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    exec.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    exec.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     exec.validate()?;
                 }
@@ -511,10 +516,12 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    container.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    container.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
-                    container.validate()
+                    container
+                        .validate()
                         .map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
                 }
                 Ok(Target::Command(Command::Container(container)))
@@ -531,8 +538,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    cargo.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    cargo.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     cargo.validate()?;
                 }
@@ -550,8 +558,9 @@ fn resolve_extends(
                     base,
                 );
                 if let Some(span_map) = span_map {
-                    go.validate()
-                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                    go.validate().map_err(|e| {
+                        validation_error::format_runtime_validation_error(e, span_map, &name)
+                    })?;
                 } else {
                     go.validate()?;
                 }
@@ -862,7 +871,13 @@ impl Context {
         for (name, command) in commands.iter() {
             self.targets.insert(
                 name.clone(),
-                resolve_extends(name.clone(), command, commands, name_map, self.span_map.as_ref())?,
+                resolve_extends(
+                    name.clone(),
+                    command,
+                    commands,
+                    name_map,
+                    self.span_map.as_ref(),
+                )?,
             );
         }
         Ok(())
