@@ -1,14 +1,49 @@
+//! Validation error formatting with source code context.
+//!
+//! This module provides rich error formatting for validation errors by tracking the source
+//! locations of fields in the TOML config file. When validation fails, we can show users
+//! exactly where the problem is with line numbers, source snippets, and helpful examples.
+//!
+//! ## How it works
+//!
+//! 1. During config parsing (`config_deserialize`), we use `toml-span` to track byte offsets
+//!    for every field and target in the TOML file
+//! 2. We convert byte offsets to line/column coordinates and store them in `SpanMap`
+//! 3. When validation errors occur (from the `validator` crate), we look up the source location
+//!    and format a helpful error message with context
+//!
+//! ## Error formatting
+//!
+//! Errors show:
+//! - The fully qualified target name (e.g., "command.exec.test")
+//! - The specific field path (e.g., "command.exec.test.command")
+//! - Source snippet with line numbers and caret highlighting
+//! - Helpful examples for common mistakes
+//!
+//! ## Validation phases
+//!
+//! There are two validation phases:
+//! - **Config-time**: Validates the raw TOML structure (uses `format_validation_error`)
+//! - **Runtime**: Validates after extends resolution when fields are resolved (uses `format_runtime_validation_error`)
+
 use std::collections::HashMap;
 use validator::ValidationErrors;
 
 use crate::name::FullyQualifiedName;
 
-/// Represents a span in the source TOML file
+/// Represents a span in the source TOML file.
+///
+/// Coordinates are 0-indexed internally (line 0 = first line, column 0 = first character).
+/// When displaying to users, we convert to 1-indexed (line 1 = first line).
 #[derive(Debug, Clone)]
 pub struct Span {
+    /// 0-indexed line number where the span starts
     pub line: usize,
+    /// 0-indexed column number where the span starts
     pub column: usize,
+    /// 0-indexed line number where the span ends
     pub end_line: usize,
+    /// 0-indexed column number where the span ends
     pub end_column: usize,
 }
 
@@ -128,6 +163,10 @@ fn format_source_snippet(source: &str, span: &Span) -> String {
     let start_line = span.line.saturating_sub(1);
     let end_line = (span.end_line + 2).min(lines.len());
 
+    // Calculate the width needed for line numbers (for proper caret alignment)
+    let max_line_num = end_line;
+    let line_num_width = max_line_num.to_string().len();
+
     for line_num in start_line..end_line {
         if line_num >= lines.len() {
             break;
@@ -135,7 +174,12 @@ fn format_source_snippet(source: &str, span: &Span) -> String {
 
         let line = lines[line_num];
         // Add 1 to line_num because editor line numbers are 1-indexed
-        output.push_str(&format!("    {} | {}\n", line_num + 1, line));
+        output.push_str(&format!(
+            "    {:width$} | {}\n",
+            line_num + 1,
+            line,
+            width = line_num_width
+        ));
 
         // Add caret highlighting for the error line
         if line_num == span.line {
@@ -146,7 +190,9 @@ fn format_source_snippet(source: &str, span: &Span) -> String {
                 line.len().saturating_sub(caret_offset).max(1)
             };
 
-            output.push_str("         "); // Indent to match line number column
+            // Indent: 4 spaces + line_num_width + " | " (3 chars)
+            let indent = 4 + line_num_width + 3;
+            output.push_str(&" ".repeat(indent));
             output.push_str(&" ".repeat(caret_offset));
             output.push_str(&"^".repeat(caret_len));
             output.push('\n');
