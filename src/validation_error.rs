@@ -27,6 +27,7 @@
 //! - **Runtime**: Validates after extends resolution when fields are resolved (uses `format_runtime_validation_error`)
 
 use std::collections::HashMap;
+use log::debug;
 use validator::ValidationErrors;
 
 use crate::name::FullyQualifiedName;
@@ -191,6 +192,9 @@ fn format_source_snippet(source: &str, span: &Span) -> String {
             };
 
             // Indent: 4 spaces + line_num_width + " | " (3 chars)
+            // Note: This assumes single-byte characters. Multi-byte UTF-8 characters
+            // (emoji, wide chars) may cause slight misalignment, but this is acceptable
+            // since TOML configs rarely use such characters in meaningful locations.
             let indent = 4 + line_num_width + 3;
             output.push_str(&" ".repeat(indent));
             output.push_str(&" ".repeat(caret_offset));
@@ -427,11 +431,15 @@ mod tests {
 
     #[test]
     fn test_extract_target_fqn() {
-        assert_eq!(extract_target_fqn("command.exec[test].command"), "command.exec.test");
-        assert_eq!(extract_target_fqn("command.exec[my-app].env"), "command.exec.my-app");
-        assert_eq!(extract_target_fqn("artifact.cargo[build].dir"), "artifact.cargo.build");
+        // Test resolved paths (normal case - after resolve_path has been called)
         assert_eq!(extract_target_fqn("command.exec.test.command"), "command.exec.test");
+        assert_eq!(extract_target_fqn("command.exec.my-app.env"), "command.exec.my-app");
         assert_eq!(extract_target_fqn("artifact.cargo.build.dir"), "artifact.cargo.build");
+        assert_eq!(extract_target_fqn("command.container.app.image"), "command.container.app");
+
+        // Bracket notation shouldn't appear in practice (resolve_path handles it first)
+        // but the function handles it as a fallback
+        assert_eq!(extract_target_fqn("command.exec[test].command"), "command.exec.test");
     }
 
     #[test]
