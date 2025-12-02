@@ -6,8 +6,8 @@
 //! 1. With the `toml` crate to deserialize into our `Config` struct (with serde + validation)
 //! 2. With the `toml-span` crate to extract source location information
 //!
-//! The `toml-span` crate doesn't support deserializing into custom structs with serde,
-//! so we need both parses. For typical config files (~100 lines), this overhead is negligible.
+//! The `toml-span` crate provides span-tracked values but doesn't integrate directly
+//! with serde, so we need both parses. For typical config files (~100 lines), this overhead is negligible.
 //!
 //! ## Span coordinate system
 //!
