@@ -20,6 +20,29 @@ impl TestContext {
         Self::default()
     }
 
+    /// Create a new test context with git initialized (for Go tests that need VCS)
+    #[allow(dead_code)]
+    pub fn new_with_git() -> Self {
+        let context = Self::new();
+        // Initialize git repo so Go's VCS stamping works
+        Command::new("git")
+            .args(["init"])
+            .current_dir(context.workdir())
+            .output()
+            .expect("Failed to initialize git");
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(context.workdir())
+            .output()
+            .expect("Failed to set git user.email");
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(context.workdir())
+            .output()
+            .expect("Failed to set git user.name");
+        context
+    }
+
     pub fn workdir(&self) -> &std::path::Path {
         self.workdir.path()
     }

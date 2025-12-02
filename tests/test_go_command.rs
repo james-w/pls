@@ -13,7 +13,7 @@ fn test_go_build_command() {
         args = "."
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -53,7 +53,7 @@ fn test_go_with_output() {
         args = "."
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -89,7 +89,7 @@ fn test_go_with_tags() {
         args = "."
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -128,7 +128,7 @@ fn test_go_extends() {
         verbose = true
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -164,7 +164,7 @@ fn test_go_test_command() {
         verbose = true
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project with a test
@@ -222,7 +222,7 @@ fn test_go_test_with_run_pattern() {
         run_pattern = "TestAdd"
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project with tests
@@ -274,7 +274,7 @@ fn test_go_mod_tidy() {
         mod_operation = "tidy"
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -310,7 +310,7 @@ fn test_go_artifact_smart_defaults() {
         args = "."
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
@@ -350,7 +350,7 @@ fn test_go_artifact_with_output() {
         args = "."
     "#;
 
-    let test_context = common::TestContext::new();
+    let test_context = common::TestContext::new_with_git();
     test_context.write_config(config_src);
 
     // Create a minimal Go project
