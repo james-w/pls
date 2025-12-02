@@ -379,7 +379,7 @@ fn resolve_extends(
 
     if command.is_artifact() {
         let artifact_info = artifact_info_from_config(
-            name,
+            name.clone(),
             &command
                 .artifact_info()
                 .expect("{} doesn't have artifact_info")
@@ -401,7 +401,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                artifact.validate()?;
+                if let Some(span_map) = span_map {
+                    artifact.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    artifact.validate()?;
+                }
                 Ok(Target::Artifact(Artifact::ContainerImage(artifact)))
             }
             ConfigWrapper::ExecArtifact(command) => {
@@ -415,7 +420,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                artifact.validate()?;
+                if let Some(span_map) = span_map {
+                    artifact.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    artifact.validate()?;
+                }
                 Ok(Target::Artifact(Artifact::Exec(artifact)))
             }
             ConfigWrapper::CargoArtifact(command) => {
@@ -429,7 +439,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                artifact.validate()?;
+                if let Some(span_map) = span_map {
+                    artifact.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    artifact.validate()?;
+                }
                 Ok(Target::Artifact(Artifact::Cargo(artifact)))
             }
             ConfigWrapper::GoArtifact(command) => {
@@ -443,7 +458,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                artifact.validate()?;
+                if let Some(span_map) = span_map {
+                    artifact.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    artifact.validate()?;
+                }
                 Ok(Target::Artifact(Artifact::Go(artifact)))
             }
             _ => panic!("Unknown artifact type, got <{}>", command.type_tag()),
@@ -490,9 +510,13 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                container
-                    .validate()
-                    .map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
+                if let Some(span_map) = span_map {
+                    container.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    container.validate()
+                        .map_err(|e| anyhow!("Error validating <{}>: {}", name, e))?;
+                }
                 Ok(Target::Command(Command::Container(container)))
             }
             ConfigWrapper::Cargo(command) => {
@@ -506,7 +530,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                cargo.validate()?;
+                if let Some(span_map) = span_map {
+                    cargo.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    cargo.validate()?;
+                }
                 Ok(Target::Command(Command::Cargo(cargo)))
             }
             ConfigWrapper::Go(command) => {
@@ -520,7 +549,12 @@ fn resolve_extends(
                     &command.with_resolved_targets(name_map)?,
                     base,
                 );
-                go.validate()?;
+                if let Some(span_map) = span_map {
+                    go.validate()
+                        .map_err(|e| validation_error::format_runtime_validation_error(e, span_map, &name))?;
+                } else {
+                    go.validate()?;
+                }
                 Ok(Target::Command(Command::Go(go)))
             }
             _ => panic!("Unknown command type, got <{}>", command.type_tag()),

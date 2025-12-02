@@ -1,8 +1,31 @@
+//! TOML config parsing with source span tracking.
+//!
+//! This module parses the pls configuration TOML file while preserving source location
+//! information for error reporting. We parse the file twice:
+//!
+//! 1. With the `toml` crate to deserialize into our `Config` struct (with serde + validation)
+//! 2. With the `toml-span` crate to extract source location information
+//!
+//! The `toml-span` crate doesn't support deserializing into custom structs with serde,
+//! so we need both parses. For typical config files (~100 lines), this overhead is negligible.
+//!
+//! ## Span coordinate system
+//!
+//! Spans use 0-indexed coordinates (line 0 = first line, column 0 = first character).
+//! The `offset_to_line_col` function converts byte offsets from `toml-span` into line/column pairs.
+
 use crate::config::Config;
 use crate::validation_error::{Span, SpanMap};
 use anyhow::Result;
 
 /// Parse TOML with span information
+///
+/// We parse the TOML twice because:
+/// 1. `toml` crate deserializes into our Config struct with proper validation
+/// 2. `toml-span` crate preserves source location information but doesn't support
+///    deserializing into custom structs with serde
+///
+/// For typical config files (~100 lines), the double parse is negligible.
 pub fn parse_with_spans(toml_str: &str) -> Result<(Config, SpanMap)> {
     // Parse with regular toml for the Config struct
     let config: Config = toml::from_str(toml_str)?;
@@ -65,42 +88,29 @@ fn extract_spans(value: &toml_span::Value, path: String, span_map: &mut SpanMap,
     // Then recurse into nested structures
     match value.as_ref() {
         ValueInner::Table(entries) => {
-            // Special handling for command/artifact tables to extract target names
-            if path.starts_with("command.") || path.starts_with("artifact.") {
-                for (key, val) in entries.iter() {
-                    let key_str = key.name.as_ref();
-                    let new_path = if path.is_empty() {
-                        key_str.to_string()
-                    } else {
-                        format!("{}.{}", path, key_str)
-                    };
+            // Check if we're at a target table (e.g., "command.exec", "artifact.cargo")
+            // by counting dots - target tables are at depth 2 (e.g., "command.exec")
+            let is_target_table = (path.starts_with("command.") || path.starts_with("artifact."))
+                && path.matches('.').count() == 1;
 
-                    // Record the target name and its span
-                    if path == "command.exec"
-                        || path == "command.container"
-                        || path == "command.cargo"
-                        || path == "command.go"
-                        || path == "artifact.cargo"
-                    {
-                        span_map.insert_target(
-                            path.to_string(),
-                            key_str.to_string(),
-                            convert_span(key.span, source),
-                        );
-                    }
+            for (key, val) in entries.iter() {
+                let key_str = key.name.as_ref();
+                let new_path = if path.is_empty() {
+                    key_str.to_string()
+                } else {
+                    format!("{}.{}", path, key_str)
+                };
 
-                    extract_spans(val, new_path, span_map, source);
+                // Record the target name and its span if we're at a target table
+                if is_target_table {
+                    span_map.insert_target(
+                        path.to_string(),
+                        key_str.to_string(),
+                        convert_span(key.span, source),
+                    );
                 }
-            } else {
-                for (key, val) in entries.iter() {
-                    let key_str = key.name.as_ref();
-                    let new_path = if path.is_empty() {
-                        key_str.to_string()
-                    } else {
-                        format!("{}.{}", path, key_str)
-                    };
-                    extract_spans(val, new_path, span_map, source);
-                }
+
+                extract_spans(val, new_path, span_map, source);
             }
         }
         ValueInner::Array(items) => {
