@@ -26,8 +26,8 @@
 //! - **Config-time**: Validates the raw TOML structure (uses `format_validation_error`)
 //! - **Runtime**: Validates after extends resolution when fields are resolved (uses `format_runtime_validation_error`)
 
-use std::collections::HashMap;
 use log::debug;
+use std::collections::HashMap;
 use validator::ValidationErrors;
 
 use crate::name::FullyQualifiedName;
@@ -82,10 +82,7 @@ impl SpanMap {
             name: name.clone(),
         };
         self.targets.insert(fqn, span);
-        self.target_order
-            .entry(table_path)
-            .or_insert_with(Vec::new)
-            .push(name);
+        self.target_order.entry(table_path).or_default().push(name);
     }
 
     pub fn get(&self, field_path: &str) -> Option<&Span> {
@@ -114,12 +111,8 @@ impl SpanMap {
                     if let Some(names) = self.target_order.get(table_path) {
                         if let Some(name) = names.get(index) {
                             // Replace [index] with .name
-                            result = format!(
-                                "{}.{}{}",
-                                table_path,
-                                name,
-                                &result[bracket_end + 1..]
-                            );
+                            result =
+                                format!("{}.{}{}", table_path, name, &result[bracket_end + 1..]);
                         }
                     }
                 }
@@ -261,10 +254,7 @@ fn collect_field_errors(
 }
 
 /// Format validation errors with span information
-pub fn format_validation_error(
-    errors: ValidationErrors,
-    span_map: &SpanMap,
-) -> anyhow::Error {
+pub fn format_validation_error(errors: ValidationErrors, span_map: &SpanMap) -> anyhow::Error {
     use log::debug;
 
     let mut output = Vec::new();
@@ -308,7 +298,10 @@ pub fn format_validation_error(
 
             output.push(msg);
         } else {
-            debug!("  No span found for {}, looking for target span", resolved_path);
+            debug!(
+                "  No span found for {}, looking for target span",
+                resolved_path
+            );
             // Fallback: try to get the span for the target table itself using FQN
             if let Some(target_span) = span_map.get_target(&target_fqn) {
                 debug!("  Found target span for {}: {:?}", target_fqn, target_span);
@@ -357,7 +350,11 @@ pub fn format_runtime_validation_error(
     let mut collected_errors = Vec::new();
     collect_field_errors(&errors, String::new(), &mut collected_errors);
 
-    debug!("Runtime validation: collected {} field errors for {}", collected_errors.len(), fqn);
+    debug!(
+        "Runtime validation: collected {} field errors for {}",
+        collected_errors.len(),
+        fqn
+    );
 
     for (field_path, error_messages) in collected_errors {
         // Build full path: fqn.to_string() + "." + field
@@ -432,14 +429,29 @@ mod tests {
     #[test]
     fn test_extract_target_fqn() {
         // Test resolved paths (normal case - after resolve_path has been called)
-        assert_eq!(extract_target_fqn("command.exec.test.command"), "command.exec.test");
-        assert_eq!(extract_target_fqn("command.exec.my-app.env"), "command.exec.my-app");
-        assert_eq!(extract_target_fqn("artifact.cargo.build.dir"), "artifact.cargo.build");
-        assert_eq!(extract_target_fqn("command.container.app.image"), "command.container.app");
+        assert_eq!(
+            extract_target_fqn("command.exec.test.command"),
+            "command.exec.test"
+        );
+        assert_eq!(
+            extract_target_fqn("command.exec.my-app.env"),
+            "command.exec.my-app"
+        );
+        assert_eq!(
+            extract_target_fqn("artifact.cargo.build.dir"),
+            "artifact.cargo.build"
+        );
+        assert_eq!(
+            extract_target_fqn("command.container.app.image"),
+            "command.container.app"
+        );
 
         // Bracket notation shouldn't appear in practice (resolve_path handles it first)
         // but the function handles it as a fallback
-        assert_eq!(extract_target_fqn("command.exec[test].command"), "command.exec.test");
+        assert_eq!(
+            extract_target_fqn("command.exec[test].command"),
+            "command.exec.test"
+        );
     }
 
     #[test]
