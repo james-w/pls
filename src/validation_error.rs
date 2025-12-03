@@ -482,4 +482,450 @@ mod tests {
         let help = get_help_message("some.other.field", "some error");
         assert_eq!(help, "");
     }
+
+    #[test]
+    fn test_get_help_message_all_fields() {
+        // Test .command field
+        let help = get_help_message("command.exec.test.command", "empty");
+        assert!(help.contains("npm run dev"));
+
+        // Test .image field
+        let help = get_help_message("command.container.app.image", "validation failed");
+        assert!(help.contains("ubuntu:22.04"));
+
+        // Test .dir field
+        let help = get_help_message("artifact.cargo.build.dir", "empty");
+        assert!(help.contains("./src"));
+
+        // Test .env field
+        let help = get_help_message("command.exec.test.env", "validation failed");
+        assert!(help.contains("FOO=bar"));
+        assert!(help.contains("DEBUG=true"));
+
+        // Test non-matching field
+        let help = get_help_message("command.exec.test.other", "some error");
+        assert_eq!(help, "");
+    }
+
+    #[test]
+    fn test_resolve_path() {
+        let mut span_map = SpanMap::new("".to_string());
+
+        // Register targets in order
+        span_map.insert_target(
+            "command.exec".to_string(),
+            "test".to_string(),
+            Span {
+                line: 0,
+                column: 0,
+                end_line: 0,
+                end_column: 0,
+            },
+        );
+        span_map.insert_target(
+            "command.exec".to_string(),
+            "another".to_string(),
+            Span {
+                line: 1,
+                column: 0,
+                end_line: 1,
+                end_column: 0,
+            },
+        );
+
+        // Test resolving bracket notation
+        assert_eq!(
+            span_map.resolve_path("command.exec[0].command"),
+            "command.exec.test.command"
+        );
+        assert_eq!(
+            span_map.resolve_path("command.exec[1].env"),
+            "command.exec.another.env"
+        );
+
+        // Test paths without brackets (should pass through unchanged)
+        assert_eq!(
+            span_map.resolve_path("command.exec.test.command"),
+            "command.exec.test.command"
+        );
+
+        // Test invalid index (should pass through unchanged)
+        assert_eq!(
+            span_map.resolve_path("command.exec[99].command"),
+            "command.exec[99].command"
+        );
+
+        // Test malformed brackets (should pass through unchanged)
+        assert_eq!(
+            span_map.resolve_path("command.exec[invalid].command"),
+            "command.exec[invalid].command"
+        );
+    }
+
+    #[test]
+    fn test_format_source_snippet_multiline() {
+        let source = "line 1\nline 2 is longer\nline 3\nline 4\nline 5";
+
+        // Test multi-line span (line 1-2)
+        let span = Span {
+            line: 1,
+            column: 5,
+            end_line: 2,
+            end_column: 3,
+        };
+
+        let snippet = format_source_snippet(source, &span);
+        assert!(snippet.contains("1 | line 1"));
+        assert!(snippet.contains("2 | line 2"));
+        assert!(snippet.contains("3 | line 3"));
+        assert!(snippet.contains("^")); // Should have caret highlighting
+    }
+
+    #[test]
+    fn test_format_source_snippet_first_line() {
+        let source = "line 1\nline 2\nline 3";
+
+        // Test span on first line (edge case: start_line.saturating_sub(1) = 0)
+        let span = Span {
+            line: 0,
+            column: 0,
+            end_line: 0,
+            end_column: 4,
+        };
+
+        let snippet = format_source_snippet(source, &span);
+        assert!(snippet.contains("1 | line 1"));
+        assert!(snippet.contains("^^^^")); // Should highlight "line"
+    }
+
+    #[test]
+    fn test_format_source_snippet_last_line() {
+        let source = "line 1\nline 2\nline 3";
+
+        // Test span on last line (edge case: end_line + 2 > lines.len())
+        let span = Span {
+            line: 2,
+            column: 0,
+            end_line: 2,
+            end_column: 6,
+        };
+
+        let snippet = format_source_snippet(source, &span);
+        assert!(snippet.contains("2 | line 2"));
+        assert!(snippet.contains("3 | line 3"));
+        assert!(snippet.contains("^^^^^^")); // Should highlight "line 3"
+    }
+
+    #[test]
+    fn test_collect_field_errors_struct() {
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestStruct {
+            #[validate(length(min = 1, message = "field must not be empty"))]
+            field: String,
+        }
+
+        let test = TestStruct {
+            field: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let mut collected = Vec::new();
+        collect_field_errors(&errors, String::new(), &mut collected);
+
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].0, "field");
+        assert!(collected[0].1[0].contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_collect_field_errors_nested() {
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct Inner {
+            #[validate(length(min = 1, message = "inner field must not be empty"))]
+            inner_field: String,
+        }
+
+        #[derive(Validate)]
+        struct Outer {
+            #[validate(nested)]
+            nested: Inner,
+        }
+
+        let test = Outer {
+            nested: Inner {
+                inner_field: "".to_string(),
+            },
+        };
+        let errors = test.validate().unwrap_err();
+
+        let mut collected = Vec::new();
+        collect_field_errors(&errors, String::new(), &mut collected);
+
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].0, "nested.inner_field");
+        assert!(collected[0].1[0].contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_format_validation_error_with_field_span() {
+        let source = r#"[command.exec.test]
+command = ""
+dir = "/tmp"
+"#;
+
+        let mut span_map = SpanMap::new(source.to_string());
+
+        // Register target
+        span_map.insert_target(
+            "command.exec".to_string(),
+            "test".to_string(),
+            Span {
+                line: 0,
+                column: 0,
+                end_line: 0,
+                end_column: 20,
+            },
+        );
+
+        // Register field with span - note this needs to match how collect_field_errors builds paths
+        // For a simple validation on "command", it will just collect "command"
+        span_map.insert_field(
+            "command".to_string(),
+            Span {
+                line: 1,
+                column: 10,
+                end_line: 1,
+                end_column: 12,
+            },
+        );
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let formatted = format_validation_error(errors, &span_map);
+        let error_msg = format!("{}", formatted);
+
+        // With a simple field path "command", extract_target_fqn returns "command"
+        assert!(error_msg.contains("'command'"));
+        // Should contain the error message
+        assert!(error_msg.contains("Command must not be empty"));
+        // Should contain source snippet
+        assert!(error_msg.contains("command = \"\""));
+        // Note: Help message won't be shown for simple path "command" (not ending with ".command")
+    }
+
+    #[test]
+    fn test_format_validation_error_with_target_span_fallback() {
+        let source = r#"[command.exec.test]
+command = ""
+"#;
+
+        let mut span_map = SpanMap::new(source.to_string());
+
+        // Register target but NOT the field - this should trigger the fallback
+        span_map.insert_target(
+            "command".to_string(),
+            "command".to_string(),
+            Span {
+                line: 0,
+                column: 0,
+                end_line: 0,
+                end_column: 20,
+            },
+        );
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let formatted = format_validation_error(errors, &span_map);
+        let error_msg = format!("{}", formatted);
+
+        // With simple path "command", it won't find the target span either
+        // (because the FQN lookup needs proper tag/name structure)
+        // So it falls back to the no-span format
+        assert!(error_msg.contains("'command'"));
+        assert!(error_msg.contains("Command must not be empty"));
+    }
+
+    #[test]
+    fn test_format_validation_error_no_span() {
+        let source = "".to_string();
+        let span_map = SpanMap::new(source);
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let formatted = format_validation_error(errors, &span_map);
+        let error_msg = format!("{}", formatted);
+
+        // Should still format error even without span info
+        assert!(error_msg.contains("command"));
+        assert!(error_msg.contains("Command must not be empty"));
+    }
+
+    #[test]
+    fn test_format_runtime_validation_error_with_field_span() {
+        let source = r#"[command.exec.test]
+command = ""
+"#;
+
+        let mut span_map = SpanMap::new(source.to_string());
+
+        span_map.insert_target(
+            "command.exec".to_string(),
+            "test".to_string(),
+            Span {
+                line: 0,
+                column: 0,
+                end_line: 0,
+                end_column: 20,
+            },
+        );
+
+        span_map.insert_field(
+            "command.exec.test.command".to_string(),
+            Span {
+                line: 1,
+                column: 10,
+                end_line: 1,
+                end_column: 12,
+            },
+        );
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let fqn = FullyQualifiedName {
+            tag: "command.exec".to_string(),
+            name: "test".to_string(),
+        };
+
+        let formatted = format_runtime_validation_error(errors, &span_map, &fqn);
+        let error_msg = format!("{}", formatted);
+
+        assert!(error_msg.contains("command.exec.test"));
+        assert!(error_msg.contains("Command must not be empty"));
+        assert!(error_msg.contains("command = \"\""));
+    }
+
+    #[test]
+    fn test_format_runtime_validation_error_with_target_span_fallback() {
+        let source = r#"[command.exec.test]
+command = ""
+"#;
+
+        let mut span_map = SpanMap::new(source.to_string());
+
+        // Register target but NOT the field
+        span_map.insert_target(
+            "command.exec".to_string(),
+            "test".to_string(),
+            Span {
+                line: 0,
+                column: 0,
+                end_line: 0,
+                end_column: 20,
+            },
+        );
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let fqn = FullyQualifiedName {
+            tag: "command.exec".to_string(),
+            name: "test".to_string(),
+        };
+
+        let formatted = format_runtime_validation_error(errors, &span_map, &fqn);
+        let error_msg = format!("{}", formatted);
+
+        // Should fall back to target span
+        assert!(error_msg.contains("command.exec.test"));
+        assert!(error_msg.contains("[command.exec.test]"));
+    }
+
+    #[test]
+    fn test_format_runtime_validation_error_no_span() {
+        let source = "".to_string();
+        let span_map = SpanMap::new(source);
+
+        use validator::Validate;
+
+        #[derive(Validate)]
+        struct TestCommand {
+            #[validate(length(min = 1, message = "Command must not be empty"))]
+            command: String,
+        }
+
+        let test = TestCommand {
+            command: "".to_string(),
+        };
+        let errors = test.validate().unwrap_err();
+
+        let fqn = FullyQualifiedName {
+            tag: "command.exec".to_string(),
+            name: "test".to_string(),
+        };
+
+        let formatted = format_runtime_validation_error(errors, &span_map, &fqn);
+        let error_msg = format!("{}", formatted);
+
+        // Should still format error even without span info
+        assert!(error_msg.contains("command.exec.test"));
+        assert!(error_msg.contains("Command must not be empty"));
+    }
 }
