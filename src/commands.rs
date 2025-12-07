@@ -43,7 +43,7 @@ fn build_command_platform(command: &str) -> Result<std::process::Command> {
     );
     split = shlex::Shlex::new(command);
     if let Some(cmd) = split.next() {
-        let mut cmd = std::process::Command::new(cmd);
+        let cmd = std::process::Command::new(cmd);
         Ok(split.fold(cmd, |mut cmd, arg| {
             cmd.arg(arg);
             cmd

@@ -195,11 +195,14 @@ pub struct CargoCommand {
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub features: Option<Vec<String>>,
     pub all_features: Option<bool>,
+    pub all_targets: Option<bool>,
     pub no_default_features: Option<bool>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
     #[validate(length(min = 1, message = "dir must not be empty"))]
     pub dir: Option<String>,
+    #[validate(length(min = 1, message = "target must not be empty"))]
+    pub target: Option<String>,
 
     #[serde(flatten)]
     #[validate(nested)]
@@ -257,6 +260,11 @@ impl CargoCommand {
             .dir
             .as_ref()
             .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        new.target = self
+            .target
+            .as_ref()
+            .map(|t| resolve_target_names_in(t, name_map))
             .transpose()?;
         Ok(new)
     }
@@ -575,11 +583,14 @@ pub struct CargoArtifact {
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub features: Option<Vec<String>>,
     pub all_features: Option<bool>,
+    pub all_targets: Option<bool>,
     pub no_default_features: Option<bool>,
     #[validate(custom(function = "crate::validate::non_empty_strings"))]
     pub env: Option<Vec<String>>,
     #[validate(length(min = 1, message = "dir must not be empty"))]
     pub dir: Option<String>,
+    #[validate(length(min = 1, message = "target must not be empty"))]
+    pub target: Option<String>,
     pub bin: Option<String>,
 
     #[serde(flatten)]
@@ -638,6 +649,11 @@ impl CargoArtifact {
             .dir
             .as_ref()
             .map(|d| resolve_target_names_in(d, name_map))
+            .transpose()?;
+        new.target = self
+            .target
+            .as_ref()
+            .map(|t| resolve_target_names_in(t, name_map))
             .transpose()?;
         new.bin = self
             .bin

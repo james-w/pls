@@ -38,10 +38,12 @@ impl CargoArtifact {
         let command = build_cargo_command_string(
             &subcommand,
             &defn.package,
-            defn.release,
+            defn.release.unwrap_or(false),
             &defn.features,
-            defn.all_features,
-            defn.no_default_features,
+            defn.all_features.unwrap_or(false),
+            defn.all_targets.unwrap_or(false),
+            defn.no_default_features.unwrap_or(false),
+            &defn.target,
             &defn.args,
         )
         .expect("Failed to escape cargo command arguments");
@@ -98,29 +100,31 @@ impl CargoArtifact {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cargo_command_string(
     subcommand: &Option<String>,
     package: &Option<String>,
-    release: Option<bool>,
+    release: bool,
     features: &Option<Vec<String>>,
-    all_features: Option<bool>,
-    no_default_features: Option<bool>,
+    all_features: bool,
+    all_targets: bool,
+    no_default_features: bool,
+    target: &Option<String>,
     args: &Option<String>,
 ) -> Result<String, shlex::QuoteError> {
     let mut builder = CommandBuilder::new("cargo")
         .subcommand(subcommand)?
         .flag_with_value("--package", package)?
-        .flag("--release", release.unwrap_or(false));
+        .flag("--release", release)
+        .flag("--all-targets", all_targets)
+        .flag_with_value("--target", target)?;
 
     // all_features overrides other feature flags
-    if all_features.unwrap_or(false) {
+    if all_features {
         builder = builder.flag("--all-features", true);
     } else {
         builder = builder
-            .flag(
-                "--no-default-features",
-                no_default_features.unwrap_or(false),
-            )
+            .flag("--no-default-features", no_default_features)
             .array_flag("--features ", features, ",")?;
     }
 
