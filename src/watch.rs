@@ -214,7 +214,7 @@ mod tests {
             targets: HashMap::new(),
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
-            project_root: std::path::PathBuf::from("/tmp"),
+            project_root: std::env::temp_dir(),
             span_map: None,
         };
         let target = any_target();
@@ -234,7 +234,7 @@ mod tests {
     fn test_get_all_with_artifact() {
         let mut context = Context {
             variables: HashMap::new(),
-            project_root: std::path::PathBuf::from("/tmp"),
+            project_root: std::env::temp_dir(),
             targets: HashMap::new(),
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
@@ -264,7 +264,7 @@ mod tests {
             targets: HashMap::new(),
             config_path: "<test>".to_string(),
             globals: HashMap::new(),
-            project_root: std::path::PathBuf::from("/tmp"),
+            project_root: std::env::temp_dir(),
             span_map: None,
         };
         let dependency = any_target();

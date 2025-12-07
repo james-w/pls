@@ -9,15 +9,18 @@ mod common;
 
 #[test]
 fn test_build() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.copy]
-        command = "cp hello world"
+        command = "{}"
         updates_paths = ["world"]
         if_files_changes = ["hello"]
-    "#;
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     test_context.workdir.child("hello").touch().unwrap();
 
@@ -52,15 +55,18 @@ fn test_build() {
 
 #[test]
 fn test_build_doesnt_rebuild() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.copy]
-        command = "cp hello world"
+        command = "{}"
         updates_paths = ["world"]
         if_files_changed = ["hello"]
-    "#;
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     test_context.workdir.child("hello").touch().unwrap();
 
@@ -107,15 +113,18 @@ fn test_build_doesnt_rebuild() {
 
 #[test]
 fn test_build_rebuilds_if_file_changes() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.copy]
-        command = "cp hello world"
+        command = "{}"
         updates_paths = ["world"]
         if_files_changed = ["hello"]
-    "#;
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     test_context.workdir.child("hello").touch().unwrap();
 
@@ -144,10 +153,20 @@ fn test_build_rebuilds_if_file_changes() {
 
     cmd.assert().success();
 
-    test_context.workdir.child("hello").touch().unwrap();
-
-    // Tiny sleep to make sure the timestamp changes
+    // Sleep before modifying to ensure we're in a new timestamp window
+    // Windows filesystem has ~100ms timestamp resolution, Unix is nanosecond
+    #[cfg(windows)]
+    thread::sleep(Duration::from_millis(150));
+    #[cfg(unix)]
     thread::sleep(Duration::from_nanos(500));
+
+    // Write to the file to update its modification time
+    // touch() alone may not update mtime on Windows
+    test_context
+        .workdir
+        .child("hello")
+        .write_str("modified")
+        .unwrap();
 
     eprintln!(
         "{}",
@@ -167,13 +186,16 @@ fn test_build_rebuilds_if_file_changes() {
 
 #[test]
 fn test_error_when_is_not_an_arfifact() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.copy]
-        command = "cp hello world"
-    "#;
+        command = "{}"
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("copy");
@@ -187,13 +209,16 @@ fn test_error_when_is_not_an_arfifact() {
 
 #[test]
 fn test_error_when_does_not_exist() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.copy]
-        command = "cp hello world"
-    "#;
+        command = "{}"
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("non_existent");
@@ -207,17 +232,20 @@ fn test_error_when_does_not_exist() {
 
 #[test]
 fn test_error_when_ambiguous() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.copy]
-        command = "cp hello world"
+        command = "{}"
 
         [artifact.container_image.copy]
         context = "."
         tag = "latest"
-    "#;
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("build").arg("copy");
@@ -231,15 +259,18 @@ fn test_error_when_ambiguous() {
 
 #[test]
 fn test_artifact_with_dir_option() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.create_file_in_subdir]
-        command = "sh -c 'pwd > output.txt'"
+        command = "{}"
         dir = "subdir"
         updates_paths = ["subdir/output.txt"]
-    "#;
+    "#,
+        common::pwd_to_file_command("output.txt")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
     test_context
         .workdir
         .child("subdir")
@@ -261,21 +292,33 @@ fn test_artifact_with_dir_option() {
         .canonicalize()
         .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
-    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
+    assert_eq!(contents.trim(), expected_str);
 }
 
 #[test]
 fn test_artifact_dir_with_variable() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.create_file_var_dir]
-        command = "sh -c 'pwd > output.txt'"
-        dir = "{build_dir}"
-        variables = { build_dir = "subdir" }
+        command = "{}"
+        dir = "{{build_dir}}"
+        variables = {{ build_dir = "subdir" }}
         updates_paths = ["subdir/output.txt"]
-    "#;
+    "#,
+        common::pwd_to_file_command("output.txt")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
     test_context
         .workdir
         .child("subdir")
@@ -297,7 +340,16 @@ fn test_artifact_dir_with_variable() {
         .canonicalize()
         .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
-    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
+    assert_eq!(contents.trim(), expected_str);
 }
 
 #[test]

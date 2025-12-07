@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 12
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     permissions:
       checks: write
@@ -28,13 +28,19 @@ jobs:
       continue-on-error: false
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
+      if: runner.os != 'Windows'
     - name: Install nextest
       uses: taiki-e/install-action@nextest
     - name: Run cargo fmt
       run: cargo fmt --check
-    - name: Run tests
+    - name: Run tests with coverage (Unix)
+      if: runner.os != 'Windows'
       run: cargo llvm-cov --all-features --workspace --codecov --output-path codecov.json nextest
+    - name: Run tests (Windows)
+      if: runner.os == 'Windows'
+      run: cargo nextest run --all-features --workspace
     - name: Show coverage report
+      if: runner.os != 'Windows'
       run: cargo llvm-cov report
     - name: Check link
       uses: actions-rs/clippy-check@v1
@@ -42,6 +48,7 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all-targets --all-features -- -D warnings
     - name: Upload coverage to Codecov
+      if: runner.os != 'Windows'
       uses: codecov/codecov-action@v3
       with:
         token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
@@ -49,7 +56,8 @@ jobs:
         fail_ci_if_error: true
     - name: Run cargo check
       run: cargo check
-    - name: Validate cargo-dist config
+    - name: Validate cargo-dist config (Unix only)
+      if: runner.os != 'Windows'
       run: |
         curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.2/cargo-dist-installer.sh | sh
         dist plan

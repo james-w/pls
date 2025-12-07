@@ -5,14 +5,17 @@ mod common;
 
 #[test]
 fn test_status_not_started() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.do_stuff]
-        command = "bash -c '$i=0; while $i<10; do i+=1; date; sleep 1; done'" 
+        command = "{}"
         daemon = true
-    "#;
+    "#,
+        common::daemon_loop_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("status").arg("do_stuff");

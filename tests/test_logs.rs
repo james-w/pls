@@ -7,14 +7,17 @@ mod common;
 
 #[test]
 fn test_logs_for_daemon() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.log_daemon]
-        command = "bash -c 'echo line1; echo line2; echo line3; sleep 1'"
+        command = "{}"
         daemon = true
-    "#;
+    "#,
+        common::echo_lines_and_sleep(&["line1", "line2", "line3"], 1)
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     // Start the daemon
     let mut cmd = test_context.get_command();
@@ -41,14 +44,17 @@ fn test_logs_for_daemon() {
 
 #[test]
 fn test_logs_with_tail_flag() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.log_daemon]
-        command = "bash -c 'i=1; while [ $i -le 20 ]; do echo line$i; i=$((i+1)); done; sleep 1'"
+        command = "{}"
         daemon = true
-    "#;
+    "#,
+        common::echo_loop_and_sleep(20, 1)
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     // Start the daemon
     let mut cmd = test_context.get_command();

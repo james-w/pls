@@ -18,6 +18,7 @@ mod context;
 mod default;
 mod name;
 mod outputs;
+mod platform;
 mod rand;
 mod shell;
 mod similarity;
