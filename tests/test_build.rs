@@ -292,16 +292,18 @@ fn test_artifact_with_dir_option() {
         .canonicalize()
         .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    // On Windows, we need to canonicalize both paths because:
+    // 1. canonicalize adds \\?\ prefix
+    // 2. The cd command might output 8.3 short names (e.g., RUNNER~1 vs runneradmin)
     #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
+    {
+        let contents_path = std::path::Path::new(contents.trim())
+            .canonicalize()
+            .unwrap();
+        assert_eq!(contents_path, expected_path);
+    }
     #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    assert_eq!(contents.trim(), expected_str);
+    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
 }
 
 #[test]
@@ -340,16 +342,18 @@ fn test_artifact_dir_with_variable() {
         .canonicalize()
         .unwrap();
     let contents = std::fs::read_to_string(output_file.path()).unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    // On Windows, we need to canonicalize both paths because:
+    // 1. canonicalize adds \\?\ prefix
+    // 2. The cd command might output 8.3 short names (e.g., RUNNER~1 vs runneradmin)
     #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
+    {
+        let contents_path = std::path::Path::new(contents.trim())
+            .canonicalize()
+            .unwrap();
+        assert_eq!(contents_path, expected_path);
+    }
     #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    assert_eq!(contents.trim(), expected_str);
+    assert_eq!(contents.trim(), expected_path.to_str().unwrap());
 }
 
 #[test]

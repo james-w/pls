@@ -4,6 +4,27 @@ use predicates::prelude::*;
 
 mod common;
 
+/// On Windows, paths from `cd` command may use 8.3 short names (e.g., RUNNER~1 vs runneradmin).
+/// This helper compares paths by canonicalizing both sides.
+#[cfg(windows)]
+fn paths_equal(output: &str, expected: &std::path::Path) -> bool {
+    let output_path = std::path::Path::new(output.trim());
+    match (output_path.canonicalize(), expected.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn paths_equal(output: &str, expected: &std::path::Path) -> bool {
+    // On macOS, /var is a symlink to /private/var, so we need to canonicalize both paths
+    let output_path = std::path::Path::new(output.trim());
+    match (output_path.canonicalize(), expected.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => output.trim() == expected.to_str().unwrap(),
+    }
+}
+
 #[test]
 fn test_exec_command() {
     let config_src = r#"
@@ -102,24 +123,16 @@ fn test_dir_option() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_subdir");
 
-    let expected_path = test_context
-        .workdir
-        .path()
-        .join("subdir")
-        .canonicalize()
-        .unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
-    #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
-    #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq(expected_str).trim());
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_path = test_context.workdir.path().join("subdir");
+    assert!(
+        paths_equal(&stdout, &expected_path),
+        "Expected path {:?}, got {:?}",
+        expected_path,
+        stdout.trim()
+    );
 }
 
 #[test]
@@ -145,24 +158,16 @@ fn test_dir_with_variable() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_var_dir");
 
-    let expected_path = test_context
-        .workdir
-        .path()
-        .join("subdir")
-        .canonicalize()
-        .unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
-    #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
-    #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq(expected_str).trim());
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_path = test_context.workdir.path().join("subdir");
+    assert!(
+        paths_equal(&stdout, &expected_path),
+        "Expected path {:?}, got {:?}",
+        expected_path,
+        stdout.trim()
+    );
 }
 
 #[test]
@@ -181,19 +186,16 @@ fn test_dir_default_is_cwd() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_no_dir");
 
-    let expected_path = test_context.workdir.path().canonicalize().unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
-    #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
-    #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq(expected_str).trim());
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_path = test_context.workdir.path();
+    assert!(
+        paths_equal(&stdout, expected_path),
+        "Expected path {:?}, got {:?}",
+        expected_path,
+        stdout.trim()
+    );
 }
 
 #[test]
@@ -227,22 +229,14 @@ fn test_dir_relative_to_project_root_not_cwd() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_in_target_dir");
 
-    let expected_path = test_context
-        .workdir
-        .path()
-        .join("target_dir")
-        .canonicalize()
-        .unwrap();
-    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
-    #[cfg(windows)]
-    let expected_str = expected_path
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(expected_path.to_str().unwrap());
-    #[cfg(unix)]
-    let expected_str = expected_path.to_str().unwrap();
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq(expected_str).trim());
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_path = test_context.workdir.path().join("target_dir");
+    assert!(
+        paths_equal(&stdout, &expected_path),
+        "Expected path {:?}, got {:?}",
+        expected_path,
+        stdout.trim()
+    );
 }
