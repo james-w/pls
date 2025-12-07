@@ -23,10 +23,12 @@ pub struct CargoCommand {
     // Store original config for extends support
     subcommand: Option<String>,
     package: Option<String>,
-    release: Option<bool>,
+    release: bool,
     features: Option<Vec<String>>,
-    all_features: Option<bool>,
-    no_default_features: Option<bool>,
+    all_features: bool,
+    all_targets: bool,
+    no_default_features: bool,
+    target: Option<String>,
     args: Option<String>,
 }
 
@@ -46,17 +48,30 @@ impl CargoCommand {
             .package
             .clone()
             .or_else(|| base.and_then(|b| b.package.clone()));
-        let release = defn.release.or_else(|| base.and_then(|b| b.release));
+        let release = defn
+            .release
+            .or_else(|| base.map(|b| b.release))
+            .unwrap_or(false);
         let features = defn
             .features
             .clone()
             .or_else(|| base.and_then(|b| b.features.clone()));
         let all_features = defn
             .all_features
-            .or_else(|| base.and_then(|b| b.all_features));
+            .or_else(|| base.map(|b| b.all_features))
+            .unwrap_or(false);
+        let all_targets = defn
+            .all_targets
+            .or_else(|| base.map(|b| b.all_targets))
+            .unwrap_or(false);
         let no_default_features = defn
             .no_default_features
-            .or_else(|| base.and_then(|b| b.no_default_features));
+            .or_else(|| base.map(|b| b.no_default_features))
+            .unwrap_or(false);
+        let target = defn
+            .target
+            .clone()
+            .or_else(|| base.and_then(|b| b.target.clone()));
         let args = defn
             .args
             .clone()
@@ -77,7 +92,9 @@ impl CargoCommand {
             release,
             &features,
             all_features,
+            all_targets,
             no_default_features,
+            &target,
             &args,
         )
         .expect("Failed to escape cargo command arguments");
@@ -116,35 +133,39 @@ impl CargoCommand {
             release,
             features,
             all_features,
+            all_targets,
             no_default_features,
+            target,
             args,
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cargo_command_string(
     subcommand: &Option<String>,
     package: &Option<String>,
-    release: Option<bool>,
+    release: bool,
     features: &Option<Vec<String>>,
-    all_features: Option<bool>,
-    no_default_features: Option<bool>,
+    all_features: bool,
+    all_targets: bool,
+    no_default_features: bool,
+    target: &Option<String>,
     args: &Option<String>,
 ) -> Result<String, shlex::QuoteError> {
     let mut builder = CommandBuilder::new("cargo")
         .subcommand(subcommand)?
         .flag_with_value("--package", package)?
-        .flag("--release", release.unwrap_or(false));
+        .flag("--release", release)
+        .flag("--all-targets", all_targets)
+        .flag_with_value("--target", target)?;
 
     // all_features overrides other feature flags
-    if all_features.unwrap_or(false) {
+    if all_features {
         builder = builder.flag("--all-features", true);
     } else {
         builder = builder
-            .flag(
-                "--no-default-features",
-                no_default_features.unwrap_or(false),
-            )
+            .flag("--no-default-features", no_default_features)
             .array_flag("--features ", features, ",")?;
     }
 

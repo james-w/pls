@@ -27,22 +27,64 @@ requires = ["command.cargo.cover"]
 
 [command.cargo.clippy]
 subcommand = "clippy"
-args = "--all-targets --all-features -- -D warnings"
+all_features = true
+all_targets = true
+args = "-- -D warnings"
 description = "Run clippy with all warnings as errors"
+
+[command.cargo.clippy-linux]
+extends = "clippy"
+target = "x86_64-unknown-linux-gnu"
+description = "Run clippy for linux"
+
+[command.cargo.clippy-windows]
+extends = "clippy"
+target = "x86_64-pc-windows-msvc"
+description = "Run clippy for windows"
+
+[command.cargo.clippy-darwin]
+extends = "clippy"
+target = "x86_64-apple-darwin"
+description = "Run clippy for macOS"
+
+[group.clippy-all]
+description = "Run clippy for all platforms"
+requires = ["clippy-windows", "clippy-linux", "clippy-darwin"]
 
 [command.cargo.clippy-fix]
 subcommand = "clippy"
-args = "--all-targets --all-features --fix -- -D warnings"
+all_features = true
+all_targets = true
+args = "--fix -- -D warnings"
 description = "Run clippy in fix mode"
 
 [command.cargo.check]
 subcommand = "check"
 description = "Run cargo check"
 
+[command.cargo.check-linux]
+extends = "check"
+target = "x86_64-unknown-linux-gnu"
+description = "Run cargo check for linux"
+
+[command.cargo.check-windows]
+extends = "check"
+target = "x86_64-pc-windows-msvc"
+description = "Run cargo check for windows"
+
+[command.cargo.check-darwin]
+extends = "check"
+target = "x86_64-apple-darwin"
+description = "Run cargo check for macOS"
+
+[group.check-all]
+description = "Run cargo check for all platforms"
+requires = ["check-windows", "check-linux", "check-darwin"]
+
 [command.exec.ci]
 command = "echo 'CI checks complete'"
 description = "Run all CI checks before pushing"
-requires = ["command.cargo.fmt", "command.cargo.test", "command.cargo.clippy", "command.cargo.check"]
+requires = ["command.cargo.fmt", "command.cargo.test", "clippy-all", "check-all"]
 
 [artifact.cargo.build]
 subcommand = "build"
