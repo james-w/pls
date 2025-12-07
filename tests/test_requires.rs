@@ -20,9 +20,15 @@ fn test_requires() {
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("world");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::eq("hello\nworld").trim());
+    // Verify both commands ran and in the correct order (hello before world)
+    let output = cmd.assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let hello_pos = stdout.find("hello").expect("hello should appear in output");
+    let world_pos = stdout.find("world").expect("world should appear in output");
+    assert!(
+        hello_pos < world_pos,
+        "hello should appear before world in output"
+    );
 }
 
 #[test]

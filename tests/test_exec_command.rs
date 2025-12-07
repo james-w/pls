@@ -60,14 +60,17 @@ fn test_extends() {
 
 #[test]
 fn test_env() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.env]
-        command = "env"
+        command = "{}"
         env = ["HELLO=world"]
-    "#;
+    "#,
+        common::env_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("env");
@@ -79,14 +82,17 @@ fn test_env() {
 
 #[test]
 fn test_dir_option() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.pwd_in_subdir]
-        command = "pwd"
+        command = "{}"
         dir = "subdir"
-    "#;
+    "#,
+        common::pwd_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
     test_context
         .workdir
         .child("subdir")
@@ -102,22 +108,34 @@ fn test_dir_option() {
         .join("subdir")
         .canonicalize()
         .unwrap();
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
     cmd.assert()
         .success()
-        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+        .stdout(predicate::eq(expected_str).trim());
 }
 
 #[test]
 fn test_dir_with_variable() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.pwd_in_var_dir]
-        command = "pwd"
-        dir = "{test_dir}"
-        variables = { test_dir = "subdir" }
-    "#;
+        command = "{}"
+        dir = "{{test_dir}}"
+        variables = {{ test_dir = "subdir" }}
+    "#,
+        common::pwd_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
     test_context
         .workdir
         .child("subdir")
@@ -133,40 +151,64 @@ fn test_dir_with_variable() {
         .join("subdir")
         .canonicalize()
         .unwrap();
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
     cmd.assert()
         .success()
-        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+        .stdout(predicate::eq(expected_str).trim());
 }
 
 #[test]
 fn test_dir_default_is_cwd() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.pwd_no_dir]
-        command = "pwd"
-    "#;
+        command = "{}"
+    "#,
+        common::pwd_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("pwd_no_dir");
 
     let expected_path = test_context.workdir.path().canonicalize().unwrap();
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
     cmd.assert()
         .success()
-        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+        .stdout(predicate::eq(expected_str).trim());
 }
 
 #[test]
 fn test_dir_relative_to_project_root_not_cwd() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.pwd_in_target_dir]
-        command = "pwd"
+        command = "{}"
         dir = "target_dir"
-    "#;
+    "#,
+        common::pwd_command()
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     // Create both a subdirectory to run from and the target directory at the project root
     test_context
@@ -191,7 +233,16 @@ fn test_dir_relative_to_project_root_not_cwd() {
         .join("target_dir")
         .canonicalize()
         .unwrap();
+    // On Windows, canonicalize adds \\?\ prefix, so we need to handle that
+    #[cfg(windows)]
+    let expected_str = expected_path
+        .to_str()
+        .unwrap()
+        .strip_prefix(r"\\?\")
+        .unwrap_or(expected_path.to_str().unwrap());
+    #[cfg(unix)]
+    let expected_str = expected_path.to_str().unwrap();
     cmd.assert()
         .success()
-        .stdout(predicate::eq(expected_path.to_str().unwrap()).trim());
+        .stdout(predicate::eq(expected_str).trim());
 }

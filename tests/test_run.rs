@@ -5,13 +5,16 @@ mod common;
 
 #[test]
 fn test_error_when_does_not_exist() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [command.exec.copy]
-        command = "cp hello world"
-    "#;
+        command = "{}"
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("non_existent");
@@ -25,17 +28,20 @@ fn test_error_when_does_not_exist() {
 
 #[test]
 fn test_error_when_ambiguous() {
-    let config_src = r#"
+    let config_src = format!(
+        r#"
         [artifact.exec.copy]
-        command = "cp hello world"
+        command = "{}"
 
         [artifact.container_image.copy]
         context = "."
         tag = "latest"
-    "#;
+    "#,
+        common::copy_command("hello", "world")
+    );
 
     let test_context = common::TestContext::new();
-    test_context.write_config(config_src);
+    test_context.write_config(&config_src);
 
     let mut cmd = test_context.get_command();
     cmd.arg("run").arg("copy");

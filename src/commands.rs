@@ -1,10 +1,11 @@
+#[cfg(unix)]
 use std::fs::File;
-use std::thread;
-use std::time::Duration;
+use std::io::{Seek, SeekFrom};
 
 use anyhow::{anyhow, Result};
 use log::debug;
-use nix::errno::Errno;
+
+use crate::platform::{self, FileLock, ProcessId, RawPid};
 
 pub fn build_command(command: &str) -> Result<std::process::Command> {
     build_command_with_env(command, &[], None)
@@ -15,6 +16,25 @@ pub fn build_command_with_env(
     env: &[String],
     dir: Option<&std::path::Path>,
 ) -> Result<std::process::Command> {
+    let mut cmd = build_command_platform(command)?;
+    for env_v in env {
+        let split = env_v.split_once('=');
+        if let Some((key, val)) = split {
+            cmd.env(key, val);
+        } else {
+            debug!("Setting env var <{}> to <>", env_v);
+            cmd.env(env_v, "");
+        }
+    }
+    if let Some(dir) = dir {
+        debug!("Setting working directory to <{}>", dir.display());
+        cmd.current_dir(dir);
+    }
+    Ok(cmd)
+}
+
+#[cfg(unix)]
+fn build_command_platform(command: &str) -> Result<std::process::Command> {
     let mut split = shlex::Shlex::new(command);
     debug!(
         "Split command <{}> into parts: <{}>",
@@ -24,19 +44,6 @@ pub fn build_command_with_env(
     split = shlex::Shlex::new(command);
     if let Some(cmd) = split.next() {
         let mut cmd = std::process::Command::new(cmd);
-        for env_v in env {
-            let split = env_v.split_once('=');
-            if let Some((key, val)) = split {
-                cmd.env(key, val);
-            } else {
-                debug!("Setting env var <{}> to <>", env_v);
-                cmd.env(env_v, "");
-            }
-        }
-        if let Some(dir) = dir {
-            debug!("Setting working directory to <{}>", dir.display());
-            cmd.current_dir(dir);
-        }
         Ok(split.fold(cmd, |mut cmd, arg| {
             cmd.arg(arg);
             cmd
@@ -46,58 +53,182 @@ pub fn build_command_with_env(
     }
 }
 
-pub fn is_process_alive(pid: nix::unistd::Pid) -> bool {
-    nix::sys::signal::kill(pid, None).is_ok()
+#[cfg(windows)]
+fn build_command_platform(command: &str) -> Result<std::process::Command> {
+    // On Windows, we run commands through cmd.exe to handle shell builtins
+    // like echo, cd, dir, etc. which are not standalone executables.
+    debug!("Running command through cmd.exe: <{}>", command);
+    let mut cmd = std::process::Command::new("cmd.exe");
+    cmd.args(["/C", command]);
+    Ok(cmd)
 }
 
-fn send_signal(pid: nix::unistd::Pid, signal: nix::sys::signal::Signal) -> Result<()> {
-    debug!("Sending <{}> to process <{}>", signal, pid);
-    match nix::sys::signal::kill(pid, signal) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(anyhow!("Failed to send signal, got errno: {}", e)),
-    }
-}
+/// Spawn a daemon process that runs independently of the parent.
+/// On Windows, we use CreateProcessW directly with bInheritHandles=FALSE and
+/// DETACHED_PROCESS | CREATE_NO_WINDOW flags to fully detach the child process.
+/// We use shell redirection (>> log 2>&1) to capture output to the log file.
+#[cfg(windows)]
+fn spawn_daemon(
+    command: &str,
+    env: &[String],
+    dir: Option<&std::path::Path>,
+    log_path: &std::path::Path,
+) -> Result<DaemonChild> {
+    use std::ffi::OsStr;
+    use std::fs::OpenOptions;
+    use std::iter::once;
+    use std::mem::zeroed;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
 
-pub fn stop_process(pid: nix::unistd::Pid) -> Result<()> {
-    let mut signal = nix::sys::signal::SIGTERM;
-    let start = std::time::Instant::now();
-    send_signal(pid, signal)
-        .map_err(|e| anyhow!("Error sending kill signal to process <{}>: {}", pid, e))?;
-    while is_process_alive(pid) {
-        if start.elapsed() > Duration::from_secs(10) {
-            signal = nix::sys::signal::SIGKILL;
-            send_signal(pid, signal)
-                .map_err(|e| anyhow!("Error sending kill signal to process <{}>: {}", pid, e))?;
-        }
-        let status = nix::sys::wait::waitpid(pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG))
-            .map_or_else(
-                |err| {
-                    if err == Errno::ECHILD {
-                        Ok(None)
-                    } else {
-                        Err(err)
-                    }
-                },
-                |x| Ok(Some(x)),
-            )
-            .map_err(|e| anyhow!("Error waiting for process {}: {}", pid, e))?;
-        if let Some(status) = status {
-            match status {
-                nix::sys::wait::WaitStatus::Exited(_, _) => {
-                    debug!("Process <{}> exited", pid);
-                    break;
-                }
-                _ => {
-                    let sleep_time = 100;
-                    if start.elapsed().as_millis() % 1000 < (sleep_time as f64 * 1.5) as u128 {
-                        debug!("Process <{}> still alive, sleeping", pid);
-                    }
-                    thread::sleep(Duration::from_millis(sleep_time));
-                }
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+    };
+
+    // CREATE_NO_WINDOW: Don't create a console window for the child process
+    // Note: We don't use DETACHED_PROCESS because cmd.exe is a console app and
+    // DETACHED_PROCESS can cause it to create a visible console window.
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // Create the log file first so it exists even before the daemon writes to it.
+    // This is important for the `logs` command to find the file.
+    debug!("Creating log file at <{}>", log_path.display());
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_path)?;
+
+    // Wrap the command to redirect stdout and stderr to the log file using shell redirection.
+    // The "2>&1" redirects stderr to stdout, and ">>" appends to the log file.
+    // Note: We don't quote the path because cmd.exe has issues with quoted paths in redirection.
+    // This means paths with spaces won't work, but pls metadata paths typically don't have spaces.
+    // IMPORTANT: We wrap the command in parentheses so that redirection applies to ALL commands
+    // in a chain (e.g., "echo a & echo b" needs "(echo a & echo b) >> file" to capture both).
+    let log_path_str = log_path.to_string_lossy();
+    let wrapped_command = format!("({}) >> {} 2>&1", command, log_path_str);
+    debug!(
+        "Starting daemon with wrapped command: <{}>",
+        wrapped_command
+    );
+
+    // Build environment block if we have custom env vars
+    // Format: VAR1=VALUE1\0VAR2=VALUE2\0\0
+    let env_block: Option<Vec<u16>> = if env.is_empty() {
+        None
+    } else {
+        // Get current environment and add our vars
+        let mut env_strings: Vec<String> = std::env::vars()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+
+        for env_v in env {
+            if let Some((key, val)) = env_v.split_once('=') {
+                // Remove existing var with same key if present
+                env_strings.retain(|s| !s.starts_with(&format!("{}=", key)));
+                env_strings.push(format!("{}={}", key, val));
+            } else {
+                env_strings.retain(|s| !s.starts_with(&format!("{}=", env_v)));
+                env_strings.push(format!("{}=", env_v));
             }
         }
+
+        // Convert to wide string block
+        let mut block: Vec<u16> = Vec::new();
+        for s in env_strings {
+            block.extend(OsStr::new(&s).encode_wide());
+            block.push(0); // Null terminator for each string
+        }
+        block.push(0); // Double null terminator at end
+        Some(block)
+    };
+
+    // Build command line: cmd.exe /C "command"
+    let cmd_line = format!("cmd.exe /C \"{}\"", wrapped_command);
+    let mut cmd_line_wide: Vec<u16> = OsStr::new(&cmd_line).encode_wide().chain(once(0)).collect();
+
+    // Convert working directory to wide string if specified
+    let dir_wide: Option<Vec<u16>> = dir.map(|d| {
+        OsStr::new(d.as_os_str())
+            .encode_wide()
+            .chain(once(0))
+            .collect()
+    });
+
+    unsafe {
+        let mut si: STARTUPINFOW = zeroed();
+        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+
+        let mut pi: PROCESS_INFORMATION = zeroed();
+
+        let result = CreateProcessW(
+            ptr::null(),                // lpApplicationName
+            cmd_line_wide.as_mut_ptr(), // lpCommandLine
+            ptr::null_mut(),            // lpProcessAttributes
+            ptr::null_mut(),            // lpThreadAttributes
+            0,                          // bInheritHandles = FALSE (key!)
+            CREATE_NO_WINDOW,           // dwCreationFlags
+            env_block
+                .as_ref()
+                .map_or(ptr::null(), |b| b.as_ptr() as *const _), // lpEnvironment
+            dir_wide.as_ref().map_or(ptr::null(), |d| d.as_ptr()), // lpCurrentDirectory
+            &si,                        // lpStartupInfo
+            &mut pi,                    // lpProcessInformation
+        );
+
+        if result == 0 {
+            let error = windows_sys::Win32::Foundation::GetLastError();
+            return Err(anyhow!("CreateProcessW failed with error code {}", error));
+        }
+
+        let pid = pi.dwProcessId;
+        debug!("Started daemon with PID <{}>", pid);
+
+        // Close the thread handle, we don't need it
+        CloseHandle(pi.hThread);
+        // Close the process handle too - we don't need to wait on it
+        CloseHandle(pi.hProcess);
+
+        Ok(DaemonChild { pid })
     }
-    Ok(())
+}
+
+/// A minimal wrapper for daemon child process info on Windows.
+/// We don't keep handles open since we fully detach the process.
+#[cfg(windows)]
+pub struct DaemonChild {
+    pid: u32,
+}
+
+#[cfg(windows)]
+impl DaemonChild {
+    pub fn id(&self) -> u32 {
+        self.pid
+    }
+}
+
+/// Spawn a daemon process that runs independently of the parent.
+/// On Unix, just spawns normally with stdout/stderr redirected to log files.
+#[cfg(unix)]
+fn spawn_daemon(
+    command: &str,
+    env: &[String],
+    dir: Option<&std::path::Path>,
+    log_path: &std::path::Path,
+) -> Result<std::process::Child> {
+    let log = File::create(log_path)?;
+    let mut cmd = build_command_with_env(command, env, dir)?;
+    let child = cmd.stdout(log.try_clone()?).stderr(log).spawn()?;
+    Ok(child)
+}
+
+pub fn is_process_alive(pid: ProcessId) -> bool {
+    platform::is_process_alive(pid)
+}
+
+pub fn stop_process(pid: ProcessId) -> Result<()> {
+    platform::stop_process(pid)
 }
 
 pub fn run_command(cmd: &str) -> Result<()> {
@@ -146,8 +277,8 @@ pub fn run_command_with_cleanup(cmd: &str, cleanup_manager: Arc<Mutex<CleanupMan
 pub fn spawn_command_with_pidfile(
     cmd: &str,
     env: &[String],
-    pid_path: &std::path::PathBuf,
-    log_path: &std::path::PathBuf,
+    pid_path: &std::path::Path,
+    log_path: &std::path::Path,
     dir: Option<&std::path::Path>,
     on_start: impl Fn(),
     idempotent: bool,
@@ -157,8 +288,6 @@ pub fn spawn_command_with_pidfile(
 
     // Open/create PID file with locking for idempotent operation
     if idempotent {
-        use nix::fcntl::{Flock, FlockArg};
-
         let pid_file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -167,20 +296,20 @@ pub fn spawn_command_with_pidfile(
             .open(pid_path)?;
 
         // Try to acquire exclusive lock
-        match Flock::lock(pid_file, FlockArg::LockExclusiveNonblock) {
-            Ok(mut flock) => {
+        match FileLock::try_lock(pid_file)? {
+            Some(mut flock) => {
                 // Got the lock - check if there's an existing PID
                 let mut existing_pid = String::new();
                 flock.read_to_string(&mut existing_pid)?;
 
                 if !existing_pid.is_empty() {
-                    let existing_pid = existing_pid.trim();
+                    let existing_pid_str = existing_pid.trim();
                     debug!(
                         "Found existing pid <{}> in locked file, checking if alive",
-                        existing_pid
+                        existing_pid_str
                     );
-                    if let Ok(pid) = existing_pid.parse::<i32>() {
-                        if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
+                    if let Ok(pid) = existing_pid_str.parse::<RawPid>() {
+                        if is_process_alive(ProcessId::from_raw(pid)) {
                             debug!("Daemon is already running with pid <{}>", pid);
                             // Daemon is running, unlock and return success
                             return Ok(());
@@ -193,16 +322,9 @@ pub fn spawn_command_with_pidfile(
                 }
 
                 // No running daemon, proceed to start
-                debug!("Creating log file at <{}>", log_path.display());
-                let log = File::create(log_path)?;
-
                 debug!("Starting daemon with command <{}>", cmd);
                 on_start();
-                let mut cmd = build_command_with_env(cmd, env, dir)?;
-                let child = cmd
-                    .stdout(log.try_clone()?)
-                    .stderr(log.try_clone()?)
-                    .spawn()?;
+                let child = spawn_daemon(cmd, env, dir, log_path)?;
                 debug!(
                     "Started daemon with pid <{}>, storing at <{}>",
                     child.id(),
@@ -211,18 +333,18 @@ pub fn spawn_command_with_pidfile(
 
                 // Write PID while holding lock
                 flock.set_len(0)?; // Truncate file
+                flock.seek(SeekFrom::Start(0))?; // Seek to start after truncate
                 flock.write_all(child.id().to_string().as_bytes())?;
                 flock.flush()?;
 
-                // Lock is automatically released when pid_file is dropped
+                // Lock is automatically released when flock is dropped
                 Ok(())
             }
-            Err((_file, nix::errno::Errno::EWOULDBLOCK)) => {
+            None => {
                 // Someone else holds the lock = daemon is starting or running
                 debug!("PID file is locked by another process, daemon is already starting/running");
                 Ok(())
             }
-            Err((_file, e)) => Err(anyhow!("Failed to lock PID file: {}", e)),
         }
     } else {
         // Non-idempotent mode: existing behavior (error if already running)
@@ -233,23 +355,16 @@ pub fn spawn_command_with_pidfile(
                 pid_path.display(),
                 pid_str.trim()
             );
-            let pid = pid_str.trim().parse::<i32>()?;
-            if is_process_alive(nix::unistd::Pid::from_raw(pid)) {
+            let pid = pid_str.trim().parse::<RawPid>()?;
+            if is_process_alive(ProcessId::from_raw(pid)) {
                 return Err(anyhow!("Daemon for is already running with pid <{}>", pid));
             }
             debug!("Process with pid <{}> is not running, continuing", pid);
         }
 
-        debug!("Creating log file at <{}>", log_path.display());
-        let log = File::create(log_path)?;
-
         debug!("Starting daemon with command <{}>", cmd);
         on_start();
-        let mut cmd = build_command_with_env(cmd, env, dir)?;
-        let child = cmd
-            .stdout(log.try_clone()?)
-            .stderr(log.try_clone()?)
-            .spawn()?;
+        let child = spawn_daemon(cmd, env, dir, log_path)?;
         debug!(
             "Started daemon for with pid <{}>, storing at <{}>",
             child.id(),
@@ -260,7 +375,7 @@ pub fn spawn_command_with_pidfile(
     }
 }
 
-pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> Result<()> {
+pub fn stop_using_pidfile(pid_path: &std::path::Path, on_stop: impl Fn()) -> Result<()> {
     let mut pid_str = std::fs::read_to_string(pid_path).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => anyhow!("Task not running"),
         _ => anyhow!(
@@ -276,7 +391,7 @@ pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> 
         pid_path.display()
     );
 
-    let pid = nix::unistd::Pid::from_raw(pid_str.parse::<i32>()?);
+    let pid = ProcessId::from_raw(pid_str.parse::<RawPid>()?);
     if is_process_alive(pid) {
         on_stop();
         stop_process(pid)?;
@@ -288,8 +403,8 @@ pub fn stop_using_pidfile(pid_path: &std::path::PathBuf, on_stop: impl Fn()) -> 
     Ok(())
 }
 
-pub fn status_using_pidfile(pid_path: &std::path::PathBuf) -> Result<Option<String>> {
-    let mut pid_str = std::fs::read_to_string(pid_path);
+pub fn status_using_pidfile(pid_path: &std::path::Path) -> Result<Option<String>> {
+    let pid_str = std::fs::read_to_string(pid_path);
     match pid_str {
         Err(e) => match e.kind() {
             std::io::ErrorKind::NotFound => Ok(None),
@@ -299,7 +414,7 @@ pub fn status_using_pidfile(pid_path: &std::path::PathBuf) -> Result<Option<Stri
                 e
             )),
         },
-        Ok(ref mut pid_str) => {
+        Ok(pid_str) => {
             let pid_str = pid_str.trim().to_string();
             debug!(
                 "Found pid <{}> for target at <{}>",
@@ -307,7 +422,7 @@ pub fn status_using_pidfile(pid_path: &std::path::PathBuf) -> Result<Option<Stri
                 pid_path.display()
             );
 
-            let pid = nix::unistd::Pid::from_raw(pid_str.parse::<i32>()?);
+            let pid = ProcessId::from_raw(pid_str.parse::<RawPid>()?);
             if is_process_alive(pid) {
                 Ok(Some(format!("Process running with pid <{}>", pid)))
             } else {
@@ -353,8 +468,10 @@ use daemonize::{Daemonize, Outcome};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
+    #[cfg(unix)]
     fn test_build_command_splits() {
         let cmd = build_command("echo hello").unwrap();
         assert_eq!(cmd.get_program(), "echo");
@@ -362,38 +479,48 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn test_build_command_uses_cmd() {
+        let cmd = build_command("echo hello").unwrap();
+        assert_eq!(cmd.get_program(), "cmd.exe");
+        assert_eq!(cmd.get_args().collect::<Vec<_>>(), &["/C", "echo hello"]);
+    }
+
+    #[test]
     fn test_is_process_alive() {
-        let pid = nix::unistd::Pid::from_raw(std::process::id() as i32);
+        #[cfg(unix)]
+        let pid = ProcessId::from_raw(std::process::id() as i32);
+        #[cfg(windows)]
+        let pid = ProcessId::from_raw(std::process::id());
         assert!(is_process_alive(pid));
     }
 
     #[test]
     fn test_is_process_alive_on_dead_process() {
-        let pid = nix::unistd::Pid::from_raw(-2);
+        #[cfg(unix)]
+        let pid = ProcessId::from_raw(-2);
+        #[cfg(windows)]
+        let pid = ProcessId::from_raw(u32::MAX);
         assert!(!is_process_alive(pid));
-    }
-
-    #[test]
-    fn test_send_signal() {
-        send_signal(
-            nix::unistd::Pid::from_raw(std::process::id() as i32),
-            nix::sys::signal::SIGWINCH,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn test_send_signal_on_dead_process() {
-        assert!(send_signal(nix::unistd::Pid::from_raw(-2), nix::sys::signal::SIGWINCH).is_err());
     }
 
     #[test]
     fn test_stop_process() {
         let start = std::time::Instant::now();
 
+        #[cfg(unix)]
+        let cmd = "sleep 4";
+        #[cfg(windows)]
+        let cmd = "powershell -Command \"Start-Sleep -Seconds 4\"";
+
         #[allow(clippy::zombie_processes)]
-        let child = build_command("sleep 4").unwrap().spawn().unwrap();
-        let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+        let child = build_command(cmd).unwrap().spawn().unwrap();
+
+        #[cfg(unix)]
+        let pid = ProcessId::from_raw(child.id() as i32);
+        #[cfg(windows)]
+        let pid = ProcessId::from_raw(child.id());
+
         assert!(is_process_alive(pid));
         stop_process(pid).unwrap();
         assert!(!is_process_alive(pid));
