@@ -5,7 +5,7 @@ use std::process::Command;
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 
-/// Cross-platform command helpers for tests
+// Cross-platform command helpers for tests
 
 /// Get a copy file command that works on both Unix and Windows
 #[cfg(unix)]
