@@ -92,6 +92,12 @@ bin = "pls"
 description = "Build the binary"
 
 [command.exec.local-install]
-command = "sh -c 'install target/debug/pls ~/.local/bin/pls'"
+command = "{install_cmd}"
 description = "Copy binary to local install dir"
 requires = ["artifact.cargo.build"]
+
+[command.exec.local-install.variables]
+install_cmd = "sh -c 'install target/debug/pls ~/.local/bin/pls'"
+
+[command.exec.local-install.variables.platform.windows]
+install_cmd = "copy target\\debug\\pls.exe %USERPROFILE%\\.local\\bin\\pls.exe"

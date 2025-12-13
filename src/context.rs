@@ -258,15 +258,14 @@ fn target_info_from_config(
         .as_ref()
         .map(|b| b.variables.clone())
         .unwrap_or_default();
-    let other_variables = config
-        .variables
-        .as_ref()
-        .map(|vs| {
-            resolve_variables(vs.iter(), name_map)
-                .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))
-        })
-        .transpose()?;
-    if let Some(other_variables) = other_variables {
+
+    if let Some(ref config_vars) = config.variables {
+        // 1. Resolve platform-specific overrides into HashMap<String, String>
+        let resolved = config_vars.resolve()?;
+        // 2. Then resolve target name references like {foo.bar} -> {command.exec.foo.bar}
+        let other_variables = resolve_variables(resolved.iter(), name_map)
+            .map_err(|e| anyhow!("Invalid reference from <{}>: {}", name, e))?;
+        // 3. Merge into variables (child overrides parent)
         variables.extend(other_variables);
     }
     Ok(TargetInfo {
@@ -682,7 +681,7 @@ impl Context {
             ..Default::default()
         };
         if let Some(ref globals) = config.globals {
-            context.globals = globals.clone();
+            context.globals = globals.resolve()?;
         }
         let mut commands = HashMap::new();
         let mut name_map = HashMap::new();
@@ -856,7 +855,7 @@ impl Context {
         }
         for (name, command) in commands.iter() {
             if let Some(ref variables) = command.target_info().variables {
-                context.variables.insert(name.clone(), (*variables).clone());
+                context.variables.insert(name.clone(), variables.resolve()?);
             }
         }
         context.resolve_extends(&commands, &name_map)?;
@@ -1146,13 +1145,17 @@ mod tests {
     #[test]
     fn uses_globals() {
         let mut config = Config {
-            globals: Some(HashMap::new()),
+            globals: Some(crate::config::Variables {
+                values: HashMap::new(),
+                platform: None,
+            }),
             ..Default::default()
         };
         config
             .globals
             .as_mut()
             .unwrap()
+            .values
             .insert("key".to_string(), "value".to_string());
         let context = Context::from_config(&config, "test".to_string(), None).unwrap();
         assert_eq!(context.variables.len(), 0);
@@ -1407,7 +1410,10 @@ mod tests {
     fn test_target_info_from_config() {
         let config = ConfigTargetInfo {
             requires: Some(vec!["a".to_string(), "b".to_string()]),
-            variables: Some(HashMap::new()),
+            variables: Some(crate::config::Variables {
+                values: HashMap::new(),
+                platform: None,
+            }),
             extends: None,
             description: Some("description".to_string()),
         };
