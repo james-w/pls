@@ -11,14 +11,56 @@ use crate::context::{
     resolve_target_names_in, resolve_target_names_in_map, resolve_target_names_in_vec,
 };
 use crate::name::FullyQualifiedName;
+use crate::validate::validate_variables_option;
 use crate::validation_error;
 
 pub use crate::validation_error::SpanMap;
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PlatformOverrides {
+    pub windows: Option<HashMap<String, String>>,
+    pub linux: Option<HashMap<String, String>>,
+    pub macos: Option<HashMap<String, String>>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, Default)]
+pub struct Variables {
+    #[serde(flatten)]
+    pub values: HashMap<String, String>,
+    pub platform: Option<PlatformOverrides>,
+}
+
+impl Variables {
+    /// Resolve to a single HashMap by applying platform-specific overrides.
+    pub fn resolve(&self) -> Result<HashMap<String, String>> {
+        let mut result = self.values.clone();
+
+        if let Some(ref platform) = self.platform {
+            let platform_values = if cfg!(target_os = "windows") {
+                &platform.windows
+            } else if cfg!(target_os = "linux") {
+                &platform.linux
+            } else if cfg!(target_os = "macos") {
+                &platform.macos
+            } else {
+                // Compiled for unknown platform - none of the overrides apply
+                &None
+            };
+
+            if let Some(overrides) = platform_values {
+                result.extend(overrides.clone());
+            }
+        }
+
+        Ok(result)
+    }
+}
+
 #[derive(Deserialize, Clone, Default, Debug, Validate)]
 pub struct Config {
-    #[validate(custom(function = "crate::validate::keys_and_values_non_empty_strings"))]
-    pub globals: Option<HashMap<String, String>>,
+    #[validate(custom(function = "validate_variables_option"))]
+    pub globals: Option<Variables>,
 
     #[validate(nested)]
     pub command: Option<Command>,
@@ -50,8 +92,8 @@ pub struct TargetInfo {
     pub requires: Option<Vec<String>>,
     #[validate(length(min = 1, message = "Name must not be empty"))]
     pub extends: Option<String>,
-    #[validate(custom(function = "crate::validate::keys_non_empty_strings"))]
-    pub variables: Option<HashMap<String, String>>,
+    #[validate(custom(function = "validate_variables_option"))]
+    pub variables: Option<Variables>,
     pub description: Option<String>,
 }
 
@@ -64,7 +106,38 @@ impl TargetInfo {
         new.variables = self
             .variables
             .as_ref()
-            .map(|i| resolve_target_names_in_map(i, name_map))
+            .map(|vars| {
+                // Resolve target names in base values
+                let resolved_values = resolve_target_names_in_map(&vars.values, name_map)?;
+
+                // Resolve target names in platform overrides (all platforms, not just current)
+                let resolved_platform = if let Some(ref platform) = vars.platform {
+                    Some(PlatformOverrides {
+                        windows: platform
+                            .windows
+                            .as_ref()
+                            .map(|m| resolve_target_names_in_map(m, name_map))
+                            .transpose()?,
+                        linux: platform
+                            .linux
+                            .as_ref()
+                            .map(|m| resolve_target_names_in_map(m, name_map))
+                            .transpose()?,
+                        macos: platform
+                            .macos
+                            .as_ref()
+                            .map(|m| resolve_target_names_in_map(m, name_map))
+                            .transpose()?,
+                    })
+                } else {
+                    None
+                };
+
+                Ok::<Variables, anyhow::Error>(Variables {
+                    values: resolved_values,
+                    platform: resolved_platform,
+                })
+            })
             .transpose()?;
         Ok(new)
     }

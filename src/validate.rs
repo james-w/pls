@@ -12,6 +12,7 @@ pub fn non_empty_strings(value: &Vec<String>) -> Result<(), ValidationError> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn keys_non_empty_strings<T>(value: &HashMap<String, T>) -> Result<(), ValidationError> {
     for s in value.keys() {
         if s.is_empty() {
@@ -33,6 +34,34 @@ pub fn keys_and_values_non_empty_strings(
         if v.is_empty() {
             return Err(ValidationError::new("invalid_hash_value")
                 .with_message(std::borrow::Cow::from("value cannot be empty")));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_variables_option(vars: &crate::config::Variables) -> Result<(), ValidationError> {
+    // Validate base values
+    keys_and_values_non_empty_strings(&vars.values)?;
+
+    // Check for reserved word "platform" in base values
+    if vars.values.contains_key("platform") {
+        return Err(
+            ValidationError::new("reserved_word").with_message(std::borrow::Cow::from(
+                "Variable name 'platform' is reserved for platform-specific overrides",
+            )),
+        );
+    }
+
+    // Validate platform overrides
+    if let Some(ref platform) = vars.platform {
+        if let Some(ref windows) = platform.windows {
+            keys_and_values_non_empty_strings(windows)?;
+        }
+        if let Some(ref linux) = platform.linux {
+            keys_and_values_non_empty_strings(linux)?;
+        }
+        if let Some(ref macos) = platform.macos {
+            keys_and_values_non_empty_strings(macos)?;
         }
     }
     Ok(())
