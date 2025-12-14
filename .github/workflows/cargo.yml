@@ -28,19 +28,13 @@ jobs:
       continue-on-error: false
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
-      if: runner.os != 'Windows'
     - name: Install nextest
       uses: taiki-e/install-action@nextest
     - name: Run cargo fmt
       run: cargo fmt --check
-    - name: Run tests with coverage (Unix)
-      if: runner.os != 'Windows'
+    - name: Run tests with coverage
       run: cargo llvm-cov --all-features --workspace --codecov --output-path codecov.json nextest
-    - name: Run tests (Windows)
-      if: runner.os == 'Windows'
-      run: cargo nextest run --all-features --workspace
     - name: Show coverage report
-      if: runner.os != 'Windows'
       run: cargo llvm-cov report
     - name: Check link
       uses: actions-rs/clippy-check@v1
@@ -48,11 +42,11 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all-targets --all-features -- -D warnings
     - name: Upload coverage to Codecov
-      if: runner.os != 'Windows'
       uses: codecov/codecov-action@v3
       with:
         token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
         files: codecov.json
+        flags: ${{ runner.os }}
         fail_ci_if_error: true
     - name: Run cargo check
       run: cargo check
