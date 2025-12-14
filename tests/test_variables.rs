@@ -177,3 +177,76 @@ fn test_unknown_platform_error() {
         .failure()
         .stderr(predicate::str::contains("unknown field").or(predicate::str::contains("freebsd")));
 }
+
+#[test]
+fn test_platform_override_empty_key_validation() {
+    let config_src = r#"
+        [globals]
+        tool = "./tool"
+
+        [globals.platform.windows]
+        "" = "invalid"
+
+        [command.exec.test]
+        command = "echo {globals.tool}"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("test");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("key cannot be empty"));
+}
+
+#[test]
+fn test_platform_override_empty_value_allowed() {
+    // Test that empty values are allowed in platform overrides
+    // This allows clearing a variable on specific platforms
+    let config_src = r#"
+        [globals]
+        tool_args = "--verbose"
+
+        [globals.platform.linux]
+        tool_args = ""
+
+        [command.exec.test]
+        command = "echo {globals.tool_args}"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("test");
+
+    // Should succeed - empty values are allowed
+    cmd.assert().success();
+}
+
+#[test]
+fn test_target_platform_override_empty_key_validation() {
+    let config_src = r#"
+        [command.exec.test]
+        command = "echo {tool}"
+
+        [command.exec.test.variables]
+        tool = "./tool"
+
+        [command.exec.test.variables.platform.macos]
+        "" = "invalid"
+    "#;
+
+    let test_context = common::TestContext::new();
+    test_context.write_config(config_src);
+
+    let mut cmd = test_context.get_command();
+    cmd.arg("run").arg("test");
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("key cannot be empty"));
+}

@@ -12,7 +12,6 @@ pub fn non_empty_strings(value: &Vec<String>) -> Result<(), ValidationError> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn keys_non_empty_strings<T>(value: &HashMap<String, T>) -> Result<(), ValidationError> {
     for s in value.keys() {
         if s.is_empty() {
@@ -40,8 +39,8 @@ pub fn keys_and_values_non_empty_strings(
 }
 
 pub fn validate_variables_option(vars: &crate::config::Variables) -> Result<(), ValidationError> {
-    // Validate base values
-    keys_and_values_non_empty_strings(&vars.values)?;
+    // Validate base values - only check keys are non-empty, allow empty values
+    keys_non_empty_strings(&vars.values)?;
 
     // Check for reserved word "platform" in base values
     if vars.values.contains_key("platform") {
@@ -52,16 +51,16 @@ pub fn validate_variables_option(vars: &crate::config::Variables) -> Result<(), 
         );
     }
 
-    // Validate platform overrides
+    // Validate platform overrides - only check keys are non-empty, allow empty values
     if let Some(ref platform) = vars.platform {
         if let Some(ref windows) = platform.windows {
-            keys_and_values_non_empty_strings(windows)?;
+            keys_non_empty_strings(windows)?;
         }
         if let Some(ref linux) = platform.linux {
-            keys_and_values_non_empty_strings(linux)?;
+            keys_non_empty_strings(linux)?;
         }
         if let Some(ref macos) = platform.macos {
-            keys_and_values_non_empty_strings(macos)?;
+            keys_non_empty_strings(macos)?;
         }
     }
     Ok(())
@@ -140,6 +139,84 @@ mod test {
     fn keys_and_values_non_empty_strings_empty_key_and_value() {
         let res =
             keys_and_values_non_empty_strings(&HashMap::from([("".to_string(), "".to_string())]));
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().to_string(), "key cannot be empty");
+    }
+
+    #[test]
+    fn validate_variables_reserved_word() {
+        // Test that "platform" is rejected as a variable name
+        let mut values = HashMap::new();
+        values.insert("platform".to_string(), "production".to_string());
+
+        let vars = crate::config::Variables {
+            values,
+            platform: None,
+        };
+
+        let res = validate_variables_option(&vars);
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err().to_string(),
+            "Variable name 'platform' is reserved for platform-specific overrides"
+        );
+    }
+
+    #[test]
+    fn validate_variables_platform_empty_key_windows() {
+        // Test that empty keys in windows platform overrides are rejected
+        let mut windows = HashMap::new();
+        windows.insert("".to_string(), "value".to_string());
+
+        let vars = crate::config::Variables {
+            values: HashMap::new(),
+            platform: Some(crate::config::PlatformOverrides {
+                windows: Some(windows),
+                linux: None,
+                macos: None,
+            }),
+        };
+
+        let res = validate_variables_option(&vars);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().to_string(), "key cannot be empty");
+    }
+
+    #[test]
+    fn validate_variables_platform_empty_value_linux() {
+        // Test that empty values in linux platform overrides are ALLOWED
+        let mut linux = HashMap::new();
+        linux.insert("key".to_string(), "".to_string());
+
+        let vars = crate::config::Variables {
+            values: HashMap::new(),
+            platform: Some(crate::config::PlatformOverrides {
+                windows: None,
+                linux: Some(linux),
+                macos: None,
+            }),
+        };
+
+        let res = validate_variables_option(&vars);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn validate_variables_platform_empty_key_macos() {
+        // Test that empty keys in macos platform overrides are rejected
+        let mut macos = HashMap::new();
+        macos.insert("".to_string(), "value".to_string());
+
+        let vars = crate::config::Variables {
+            values: HashMap::new(),
+            platform: Some(crate::config::PlatformOverrides {
+                windows: None,
+                linux: None,
+                macos: Some(macos),
+            }),
+        };
+
+        let res = validate_variables_option(&vars);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().to_string(), "key cannot be empty");
     }

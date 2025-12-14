@@ -37,16 +37,14 @@ impl Variables {
         let mut result = self.values.clone();
 
         if let Some(ref platform) = self.platform {
-            let platform_values = if cfg!(target_os = "windows") {
-                &platform.windows
-            } else if cfg!(target_os = "linux") {
-                &platform.linux
-            } else if cfg!(target_os = "macos") {
-                &platform.macos
-            } else {
-                // Compiled for unknown platform - none of the overrides apply
-                &None
-            };
+            // Use compile-time cfg to select the platform-specific overrides directly
+            // This will cause a compile error on unsupported platforms
+            #[cfg(target_os = "windows")]
+            let platform_values = &platform.windows;
+            #[cfg(target_os = "linux")]
+            let platform_values = &platform.linux;
+            #[cfg(target_os = "macos")]
+            let platform_values = &platform.macos;
 
             if let Some(overrides) = platform_values {
                 result.extend(overrides.clone());
